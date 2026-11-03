@@ -1,0 +1,60 @@
+# Agent Guidelines for {{.AppName}}
+
+This project uses the `jet` CLI and follows the skill definition at [`.agents/skills/android-jet/SKILL.md`](.agents/skills/android-jet/SKILL.md).
+
+## Toolchain Setup
+
+If `jet` is not installed on the system:
+```bash
+command -v jet >/dev/null 2>&1 || curl -sSL https://raw.githubusercontent.com/tekibo/jet/main/install.sh | bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Verify the environment:
+```bash
+jet doctor --json
+```
+
+## Project Overview
+- **Language**: Kotlin 2.x
+- **Build System**: Gradle Kotlin DSL with Version Catalog (`gradle/libs.versions.toml`)
+- **UI Framework**: Jetpack Compose
+- **SDK Targets**: Min SDK {{.MinSdk}} | Target SDK {{.TargetSdk}} | Compile SDK {{.CompileSdk}}
+- **Package**: `{{.PackageName}}`
+
+## Build and Diagnostic Commands
+Use `jet build --json` to get structured compiler errors with file, line, and column locations instead of reading raw Gradle logs.
+
+- Build debug APK: `jet build --json`
+- Deploy to device/emulator: `jet run`
+- List devices: `jet devices --json`
+- Run unit tests: `jet test --json`
+- Add dependencies: `jet add <nav|coil|icons|viewmodel|room|ktor|datastore|camera|work>`
+- Generate screens / ViewModels: `jet add-screen <Name>`, `jet add-viewmodel <Name>`
+- Generate icons: `jet icon [file] [--bg <hex>]`
+- Release build: `jet keystore` then `jet build --release` / `jet build --aab`
+- Clean cache and daemons: `jet clean --all`
+
+Fallback Gradle commands: `./gradlew assembleDebug`, `./gradlew test`
+
+## Architecture Rules
+- **Jetpack Compose**: All UI is written as `@Composable` Kotlin functions without XML layouts.
+- **Edge-to-Edge**: `enableEdgeToEdge()` is active in `MainActivity.kt`. Handle insets using `Scaffold` inner padding:
+  ```kotlin
+  Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+      Content(modifier = Modifier.padding(innerPadding))
+  }
+  ```
+- **State Management**:
+  - Expose UI state from ViewModels using `StateFlow`.
+  - Handle side-effects with `LaunchedEffect` or `rememberCoroutineScope`.
+  - Avoid mutating state inside Composable bodies.
+- **Dependencies**:
+  - Add libraries via `jet add <preset>` or edit `gradle/libs.versions.toml`. Do not hardcode versions in `build.gradle.kts`.
+
+## Directory Layout
+- **Source Code**: `app/src/main/kotlin/{{.PackagePath}}/`
+- **Theme**: `app/src/main/kotlin/{{.PackagePath}}/ui/theme/`
+- **Manifest**: `app/src/main/AndroidManifest.xml`
+- **Skill**: `.agents/skills/android-jet/SKILL.md`
+- **Dependencies**: `gradle/libs.versions.toml`
