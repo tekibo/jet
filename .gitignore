@@ -1,0 +1,12 @@
+# Binaries
+/jet
+*.exe
+
+# Distribution
+/dist/
+
+# OS and Editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp

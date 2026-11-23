@@ -1,0 +1,41 @@
+package {{.PackageName}}.ui.viewmodels
+
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+
+data class {{.BaseName}}UiState(
+    val isLoading: Boolean = false,
+    val items: List<String> = emptyList(),
+    val errorMessage: String? = null
+)
+
+sealed interface {{.BaseName}}UiEvent {
+    data object Refresh : {{.BaseName}}UiEvent
+    data class ItemClicked(val id: String) : {{.BaseName}}UiEvent
+}
+
+class {{.BaseName}}ViewModel : ViewModel() {
+
+    private val _uiState = MutableStateFlow({{.BaseName}}UiState())
+    val uiState: StateFlow<{{.BaseName}}UiState> = _uiState.asStateFlow()
+
+    fun onEvent(event: {{.BaseName}}UiEvent) {
+        when (event) {
+            is {{.BaseName}}UiEvent.Refresh -> refresh()
+            is {{.BaseName}}UiEvent.ItemClicked -> handleItemClick(event.id)
+        }
+    }
+
+    private fun refresh() {
+        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        // TODO: Load data from repository
+        _uiState.update { it.copy(isLoading = false) }
+    }
+
+    private fun handleItemClick(id: String) {
+        // TODO: Handle item selection
+    }
+}

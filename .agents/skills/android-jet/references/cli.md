@@ -1,0 +1,30 @@
+# The jet CLI, in detail
+
+Pass `--json` for machine-readable output on the commands that have it.
+
+## Environment
+
+- `jet doctor` - diagnose the local Android SDK & Java environment: JDK 17+, the Android SDK
+  (platforms, build tools, platform tools) and licenses (`yes | sdkmanager --licenses`).
+  With `--json`: `{"success": true, "command": "doctor", "data": {"has_errors": false, "sdk_path": "...", "checks": [{"name", "found", "warning", "description", "detail"}]}}`
+
+## Project setup
+
+- `jet init <dir> [--name "Name" --package "com.pkg"]` - scaffold a new Compose project.
+- `jet add <preset> [dir]` - add a library to the Version Catalog and Gradle: nav, coil, icons,
+  viewmodel, room, ktor, datastore, camera, work.
+- `jet add-screen <Name> [dir]` - Compose screen scaffold.
+- `jet add-viewmodel <Name> [dir]` - UDF ViewModel with StateFlow.
+
+## Run and check
+
+- `jet run [dir] [--device <serial>] [--no-logs]` - build debug APK, install, launch the activity,
+  and stream filtered logcat.
+- `jet build [dir] [--release] [--aab] [--json]` - Debug APK or Release APK / App Bundle.
+- `jet test [dir] [--json]` - unit tests; JSON: `{"success", "total", "passed", "failed", "failures": [{"test_class", "test_name", "message", "file", "line"}]}`.
+- `jet clean [dir] [--all]` - clean build caches, stop daemons, and clear locks.
+- `jet icon [file] [--bg <hex>]` - generate the full icon suite (adaptive, monochrome, splash, notification).
+- `jet rename-pkg [dir] [--to <new.pkg>]` - rename the package across files and manifests.
+- `jet keystore [dir]` - generate the production keystore and signing config.
+- `jet devices` - list connected hardware devices and running emulators.
+- `jet emu start <avd_name> [--headless]` - start an Android Virtual Device.

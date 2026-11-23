@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag Version (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      platform:
+        description: 'Target platform to build'
+        type: choice
+        required: true
+        default: 'all'
+        options:
+          - 'all'
+          - 'linux-amd64'
+          - 'linux-arm64'
+          - 'darwin-amd64'
+          - 'darwin-arm64'
+          - 'windows-amd64'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Build Cross-Platform Binaries
+        id: build
+        run: |
+          mkdir -p dist
+          TAG="${{ github.event.inputs.tag_name }}"
+          PLATFORM="${{ github.event.inputs.platform }}"
+
+          build_target() {
+            local GOOS=$1
+            local GOARCH=$2
+            local OUT_NAME="jet"
+
+            echo "==> Building for ${GOOS}/${GOARCH}..."
+            mkdir -p "dist/build_${GOOS}_${GOARCH}"
+
+            if [ "$GOOS" = "windows" ]; then
+              GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "dist/build_${GOOS}_${GOARCH}/${OUT_NAME}.exe" .
+              (cd "dist/build_${GOOS}_${GOARCH}" && zip -q "../../dist/jet-${GOOS}-${GOARCH}.zip" "${OUT_NAME}.exe")
+            else
+              GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "dist/build_${GOOS}_${GOARCH}/${OUT_NAME}" .
+              (cd "dist/build_${GOOS}_${GOARCH}" && tar -czf "../../dist/jet-${GOOS}-${GOARCH}.tar.gz" "${OUT_NAME}")
+            fi
+          }
+
+          if [ "$PLATFORM" = "all" ] || [ "$PLATFORM" = "linux-amd64" ]; then
+            build_target linux amd64
+          fi
+          if [ "$PLATFORM" = "all" ] || [ "$PLATFORM" = "linux-arm64" ]; then
+            build_target linux arm64
+          fi
+          if [ "$PLATFORM" = "all" ] || [ "$PLATFORM" = "darwin-amd64" ]; then
+            build_target darwin amd64
+          fi
+          if [ "$PLATFORM" = "all" ] || [ "$PLATFORM" = "darwin-arm64" ]; then
+            build_target darwin arm64
+          fi
+          if [ "$PLATFORM" = "all" ] || [ "$PLATFORM" = "windows-amd64" ]; then
+            build_target windows amd64
+          fi
+
+          ls -la dist/
+
+      - name: Create or Update GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag_name }}"
+          TITLE="Release ${TAG}"
+          NOTES="Automated release for jet ${TAG}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists. Uploading assets..."
+            gh release upload "$TAG" dist/*.tar.gz dist/*.zip --clobber 2>/dev/null || true
+          else
+            echo "Creating new release $TAG..."
+            gh release create "$TAG" dist/*.tar.gz dist/*.zip \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --draft=false \
+              --prerelease=false
+          fi

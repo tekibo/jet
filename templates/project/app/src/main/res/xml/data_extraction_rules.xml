@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nothing is backed up: there are no <cloud-backup> or <device-transfer> rules here.
+     See https://developer.android.com/about/versions/12/behavior-changes-12#backup-restore to add some. -->
+<data-extraction-rules>
+</data-extraction-rules>

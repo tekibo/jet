@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="jetGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="50%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#1D4ED8" />
+    </linearGradient>
+    <linearGradient id="wingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60A5FA" />
+      <stop offset="100%" stop-color="#3B82F6" />
+    </linearGradient>
+  </defs>
+
+  <!-- Jet Core Silhouette -->
+  <g transform="translate(64,64) rotate(-45) translate(-64,-64)">
+    <!-- Main Body -->
+    <path fill="url(#jetGrad)" d="M64 12 C64 12, 76 38, 76 68 L88 78 L88 90 L68 84 L64 116 L60 84 L40 90 L40 78 L52 68 C52 38, 64 12, 64 12 Z" />
+    <!-- Wing Highlights -->
+    <path fill="url(#wingGrad)" opacity="0.85" d="M64 24 C64 24, 73 45, 73 68 L86 78 L86 86 L67 81 L64 24 Z" />
+    <!-- Cockpit Core -->
+    <ellipse cx="64" cy="46" rx="4" ry="12" fill="#E0F2FE" />
+  </g>
+</svg>
