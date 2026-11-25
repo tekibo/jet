@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"jet/diagnostics"
+	"jet/scaffold"
 )
 
 type TestSuiteXML struct {
@@ -59,24 +61,24 @@ type TestReport struct {
 	RawOutput   string                   `json:"raw_output,omitempty"`
 }
 
-func RunTests(projectDir string, jsonMode bool) error {
+func RunTests(projectDir string, jsonMode bool, templatesFS fs.FS) error {
 	if projectDir == "" {
 		projectDir = "."
 	}
 
-	gradlewPath := filepath.Join(projectDir, "gradlew")
-	if _, err := os.Stat(gradlewPath); err != nil {
-		err := fmt.Errorf("no gradlew found in '%s'. Are you in an Android project root?", projectDir)
+	if err := scaffold.EnsureGradleWrapper(templatesFS, projectDir, jsonMode); err != nil {
 		if jsonMode {
 			printReport(TestReport{
-				Success: false,
-				Command: "test",
+				Success:   false,
+				Command:   "test",
 				RawOutput: err.Error(),
 			})
 			return nil
 		}
 		return err
 	}
+
+	gradlewPath := filepath.Join(projectDir, "gradlew")
 
 	if !jsonMode {
 		fmt.Printf("[i] Running unit tests in '%s'...\n", projectDir)

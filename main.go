@@ -166,7 +166,7 @@ func main() {
 			}
 		}
 
-		if err := device.RunApp(targetDir, *deviceFlag, !*noLogsFlag); err != nil {
+		if err := device.RunApp(targetDir, *deviceFlag, !*noLogsFlag, embeddedTemplates); err != nil {
 			fmt.Fprintf(os.Stderr, "Run error: %v\n", err)
 			os.Exit(1)
 		}
@@ -201,6 +201,7 @@ func main() {
 			Release:   *releaseFlag,
 			AAB:       *aabFlag,
 			JSON:      *jsonFlag || jsonMode,
+			Templates: embeddedTemplates,
 		}
 
 		if err := builder.BuildApp(opts); err != nil {
@@ -416,7 +417,7 @@ func main() {
 			}
 		}
 
-		if err := tester.RunTests(targetDir, jsonMode); err != nil {
+		if err := tester.RunTests(targetDir, jsonMode, embeddedTemplates); err != nil {
 			os.Exit(1)
 		}
 
@@ -439,7 +440,7 @@ func main() {
 			targetDir = "."
 		}
 
-		if err := cleaner.RunClean(targetDir, *allFlag, jsonMode); err != nil {
+		if err := cleaner.RunClean(targetDir, *allFlag, jsonMode, embeddedTemplates); err != nil {
 			os.Exit(1)
 		}
 

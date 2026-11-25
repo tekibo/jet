@@ -3,6 +3,7 @@ package device
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"jet/diagnostics"
 	"jet/pkgchanger"
+	"jet/scaffold"
 )
 
 type DeviceInfo struct {
@@ -246,7 +248,7 @@ func StartEmulator(avdName string, headless bool) error {
 	return nil
 }
 
-func RunApp(targetDir string, explicitDevice string, streamLogs bool) error {
+func RunApp(targetDir string, explicitDevice string, streamLogs bool, templatesFS fs.FS) error {
 	if targetDir == "" {
 		targetDir = "."
 	}
@@ -288,9 +290,8 @@ func RunApp(targetDir string, explicitDevice string, streamLogs bool) error {
 	fmt.Printf("[i] Target device: %s (%s, %s)\n", targetDevice.Serial, targetDevice.Model, targetDevice.Type)
 
 	// 3. Build & Install via Gradle Wrapper
-	gradlew := filepath.Join(targetDir, "gradlew")
-	if _, err := os.Stat(gradlew); err != nil {
-		return fmt.Errorf("gradlew not found in %s", targetDir)
+	if err := scaffold.EnsureGradleWrapper(templatesFS, targetDir, false); err != nil {
+		return err
 	}
 
 	fmt.Println("[i] Building & installing debug APK...")

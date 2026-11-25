@@ -3,9 +3,12 @@ package cleaner
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"jet/scaffold"
 )
 
 type CleanResult struct {
@@ -16,7 +19,7 @@ type CleanResult struct {
 	Error        string   `json:"error,omitempty"`
 }
 
-func RunClean(projectDir string, all bool, jsonMode bool) error {
+func RunClean(projectDir string, all bool, jsonMode bool, templatesFS fs.FS) error {
 	if projectDir == "" {
 		projectDir = "."
 	}
@@ -27,9 +30,7 @@ func RunClean(projectDir string, all bool, jsonMode bool) error {
 		CleanedPaths: make([]string, 0),
 	}
 
-	gradlewPath := filepath.Join(projectDir, "gradlew")
-	if _, err := os.Stat(gradlewPath); err != nil {
-		err := fmt.Errorf("no gradlew found in '%s'", projectDir)
+	if err := scaffold.EnsureGradleWrapper(templatesFS, projectDir, jsonMode); err != nil {
 		if jsonMode {
 			result.Error = err.Error()
 			printJSON(result)
@@ -37,6 +38,8 @@ func RunClean(projectDir string, all bool, jsonMode bool) error {
 		}
 		return err
 	}
+
+	gradlewPath := filepath.Join(projectDir, "gradlew")
 
 	if !jsonMode {
 		fmt.Printf("[i] Cleaning project in '%s'...\n", projectDir)

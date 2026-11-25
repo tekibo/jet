@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"jet/diagnostics"
+	"jet/scaffold"
 )
 
 type BuildOptions struct {
@@ -20,6 +22,7 @@ type BuildOptions struct {
 	Release   bool
 	AAB       bool
 	JSON      bool
+	Templates fs.FS
 }
 
 type ArtifactInfo struct {
@@ -35,17 +38,16 @@ func BuildApp(opts BuildOptions) error {
 		opts.TargetDir = "."
 	}
 
-	gradlew := filepath.Join(opts.TargetDir, "gradlew")
-	if _, err := os.Stat(gradlew); err != nil {
+	if err := scaffold.EnsureGradleWrapper(opts.Templates, opts.TargetDir, opts.JSON); err != nil {
 		if opts.JSON {
 			outputJSON(diagnostics.OutputEnvelope{
 				Success: false,
 				Command: "build",
-				Error:   fmt.Sprintf("gradlew not found in %s", opts.TargetDir),
+				Error:   err.Error(),
 			})
 			return nil
 		}
-		return fmt.Errorf("gradlew not found in %s", opts.TargetDir)
+		return err
 	}
 
 	task := "assembleDebug"
