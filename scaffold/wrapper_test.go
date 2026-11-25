@@ -9,9 +9,9 @@ import (
 
 func testWrapperFS() fstest.MapFS {
 	return fstest.MapFS{
-		"templates/project/gradlew":                                {Data: []byte("#!/bin/sh\necho gradlew\n")},
-		"templates/project/gradlew.bat":                            {Data: []byte("@echo off\r\n")},
-		"templates/project/gradle/wrapper/gradle-wrapper.jar":      {Data: []byte("jar-bytes")},
+		"templates/project/gradlew":                                  {Data: []byte("#!/bin/sh\necho gradlew\n")},
+		"templates/project/gradlew.bat":                              {Data: []byte("@echo off\r\n")},
+		"templates/project/gradle/wrapper/gradle-wrapper.jar":        {Data: []byte("jar-bytes")},
 		"templates/project/gradle/wrapper/gradle-wrapper.properties": {Data: []byte("distributionUrl=https\\://services.gradle.org/distributions/gradle-default.zip\n")},
 	}
 }

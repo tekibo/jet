@@ -18,13 +18,12 @@ Pass `--json` for machine-readable output on the commands that have it.
 
 ## Run and check
 
-- `jet run [dir] [--device <serial>] [--no-logs]` - build debug APK, install, launch the activity,
-  and stream filtered logcat.
-- `jet build [dir] [--release] [--aab] [--json]` - Debug APK or Release APK / App Bundle.
-- `jet test [dir] [--json]` - unit tests; JSON: `{"success", "total", "passed", "failed", "failures": [{"test_class", "test_name", "message", "file", "line"}]}`.
-- `jet clean [dir] [--all]` - clean build caches, stop daemons, and clear locks.
-- `jet icon [file] [--bg <hex>]` - generate the full icon suite (adaptive, monochrome, splash, notification).
+- `jet run [dir] [--device <serial>] [--no-logs] [--json]` - build debug APK, install, detect and launch the launcher activity, and stream filtered logcat (or emit JSON when `--json` is passed).
+- `jet build [dir] [--release] [--aab] [--module <mod>] [--variant <var>] [--json]` - Debug APK (default), Release APK, or App Bundle across single- or multi-module projects.
+- `jet test [dir] [--json]` - unit tests across all modules; JSON includes `failures` and pre-test Gradle `diagnostics` + `raw_output` on build failures.
+- `jet clean [dir] [--all] [--json]` - clean build caches across modules, stop daemons, and clear locks.
+- `jet icon [file] [--bg <hex>] [--json]` - generate the full icon suite (adaptive, monochrome, splash, notification).
 - `jet rename-pkg [dir] [--to <new.pkg>]` - rename the package across files and manifests.
-- `jet keystore [dir]` - generate the production keystore and signing config.
+- `jet keystore [dir] [--debug] [--password <pw>] [--alias <a>] [--name <file>] [--force] [--json]` - generate a debug keystore (`--debug`) or release keystore & signing config non-interactively.
 - `jet devices` - list connected hardware devices and running emulators.
 - `jet emu start <avd_name> [--headless]` - start an Android Virtual Device.

@@ -2,11 +2,14 @@ package signing
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"jet/diagnostics"
 )
 
 type KeystoreOptions struct {
@@ -16,6 +19,9 @@ type KeystoreOptions struct {
 	Password     string
 	CommonName   string
 	OrgName      string
+	Debug        bool
+	Force        bool
+	JSON         bool
 }
 
 func GenerateKeystore(opts KeystoreOptions) error {
@@ -23,44 +29,61 @@ func GenerateKeystore(opts KeystoreOptions) error {
 		opts.TargetDir = "."
 	}
 
+	fail := func(err error) error {
+		if opts.JSON {
+			outputJSON(diagnostics.OutputEnvelope{
+				Success: false,
+				Command: "keystore",
+				Error:   err.Error(),
+			})
+			return diagnostics.ExitError{Code: 1, Err: err}
+		}
+		return err
+	}
+
+	keytoolPath, err := findKeytool()
+	if err != nil {
+		return fail(err)
+	}
+
+	if opts.Debug {
+		return generateDebugMode(keytoolPath, opts, fail)
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
-	// Check keytool from JDK
-	keytoolPath, err := exec.LookPath("keytool")
-	if err != nil {
-		javaHome := os.Getenv("JAVA_HOME")
-		if javaHome != "" {
-			candidate := filepath.Join(javaHome, "bin", "keytool")
-			if _, sErr := os.Stat(candidate); sErr == nil {
-				keytoolPath = candidate
-			}
-		}
-	}
-	if keytoolPath == "" {
-		return fmt.Errorf("keytool executable not found in PATH or JAVA_HOME. Please ensure JDK 17+ is installed")
-	}
-
 	if opts.KeystoreName == "" {
-		fmt.Print("Keystore file name [release.keystore]: ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-		if input == "" {
-			input = "release.keystore"
+		if opts.JSON {
+			opts.KeystoreName = "release.keystore"
+		} else {
+			fmt.Print("Keystore file name [release.keystore]: ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input == "" {
+				input = "release.keystore"
+			}
+			opts.KeystoreName = input
 		}
-		opts.KeystoreName = input
 	}
 
 	if opts.Alias == "" {
-		fmt.Print("Key alias name [release-key]: ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-		if input == "" {
-			input = "release-key"
+		if opts.JSON {
+			opts.Alias = "release-key"
+		} else {
+			fmt.Print("Key alias name [release-key]: ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input == "" {
+				input = "release-key"
+			}
+			opts.Alias = input
 		}
-		opts.Alias = input
 	}
 
 	if opts.Password == "" {
+		if opts.JSON {
+			return fail(fmt.Errorf("password is required in --json mode (pass --password with at least 6 characters)"))
+		}
 		for {
 			fmt.Print("Enter keystore password (min 6 chars): ")
 			input, _ := reader.ReadString('\n')
@@ -71,34 +94,49 @@ func GenerateKeystore(opts KeystoreOptions) error {
 			}
 			fmt.Println(" [!] Password must be at least 6 characters.")
 		}
+	} else if len(opts.Password) < 6 {
+		return fail(fmt.Errorf("password must be at least 6 characters"))
 	}
 
 	if opts.CommonName == "" {
-		fmt.Print("First and last name / CN [Android Developer]: ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-		if input == "" {
-			input = "Android Developer"
+		if opts.JSON {
+			opts.CommonName = "Android Developer"
+		} else {
+			fmt.Print("First and last name / CN [Android Developer]: ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input == "" {
+				input = "Android Developer"
+			}
+			opts.CommonName = input
 		}
-		opts.CommonName = input
 	}
 
 	if opts.OrgName == "" {
-		fmt.Print("Organization name / O [MyCompany]: ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-		if input == "" {
-			input = "MyCompany"
+		if opts.JSON {
+			opts.OrgName = "MyCompany"
+		} else {
+			fmt.Print("Organization name / O [MyCompany]: ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input == "" {
+				input = "MyCompany"
+			}
+			opts.OrgName = input
 		}
-		opts.OrgName = input
 	}
 
 	keystoreFullPath := filepath.Join(opts.TargetDir, opts.KeystoreName)
 	if _, err := os.Stat(keystoreFullPath); err == nil {
-		fmt.Printf(" [!] Warning: '%s' already exists. Overwrite? [y/N]: ", keystoreFullPath)
-		ans, _ := reader.ReadString('\n')
-		if strings.ToLower(strings.TrimSpace(ans)) != "y" {
-			return fmt.Errorf("operation cancelled")
+		if !opts.Force {
+			if opts.JSON {
+				return fail(fmt.Errorf("keystore '%s' already exists (pass --force to overwrite)", keystoreFullPath))
+			}
+			fmt.Printf(" [!] Warning: '%s' already exists. Overwrite? [y/N]: ", keystoreFullPath)
+			ans, _ := reader.ReadString('\n')
+			if strings.ToLower(strings.TrimSpace(ans)) != "y" {
+				return fmt.Errorf("operation cancelled")
+			}
 		}
 		_ = os.Remove(keystoreFullPath)
 	}
@@ -121,10 +159,12 @@ func GenerateKeystore(opts KeystoreOptions) error {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("keytool failed: %s\nOutput: %s", err, string(out))
+		return fail(fmt.Errorf("keytool failed: %s\nOutput: %s", err, string(out)))
 	}
 
-	fmt.Printf("✓ Release keystore generated at: %s\n", keystoreFullPath)
+	if !opts.JSON {
+		fmt.Printf("✓ Release keystore generated at: %s\n", keystoreFullPath)
+	}
 
 	// Create keystore.properties in target directory
 	propsPath := filepath.Join(opts.TargetDir, "keystore.properties")
@@ -132,32 +172,19 @@ func GenerateKeystore(opts KeystoreOptions) error {
 		opts.KeystoreName, opts.Password, opts.Alias, opts.Password)
 
 	if err := os.WriteFile(propsPath, []byte(propsContent), 0600); err != nil {
-		return fmt.Errorf("failed to write keystore.properties: %w", err)
+		return fail(fmt.Errorf("failed to write keystore.properties: %w", err))
 	}
-	fmt.Printf("✓ Created signing configuration: %s\n", propsPath)
+	if !opts.JSON {
+		fmt.Printf("✓ Created signing configuration: %s\n", propsPath)
+	}
 
-	// Ensure .gitignore ignores secrets
-	gitignorePath := filepath.Join(opts.TargetDir, ".gitignore")
-	if data, err := os.ReadFile(gitignorePath); err == nil {
-		content := string(data)
-		toAppend := ""
-		if !strings.Contains(content, "keystore.properties") {
-			toAppend += "\nkeystore.properties\n"
-		}
-		if !strings.Contains(content, "*.keystore") && !strings.Contains(content, "*.jks") {
-			toAppend += "*.keystore\n*.jks\n"
-		}
-		if toAppend != "" {
-			_ = os.WriteFile(gitignorePath, []byte(content+toAppend), 0644)
-			fmt.Printf("✓ Updated %s with keystore ignores\n", gitignorePath)
-		}
-	}
+	ensureGitignoreHas(opts.TargetDir, "keystore.properties", "*.keystore", "*.jks")
 
 	// Update app/build.gradle.kts to hook up signing if not already present
 	gradlePath := filepath.Join(opts.TargetDir, "app", "build.gradle.kts")
 	if data, err := os.ReadFile(gradlePath); err == nil {
 		gContent := string(data)
-		if !strings.Contains(gContent, "keystoreProperties") {
+		if !strings.Contains(gContent, "keystoreProperties") && !strings.Contains(gContent, "signingConfigs") {
 			signingBlock := `
     val keystorePropertiesFile = rootProject.file("keystore.properties")
     val keystoreProperties = java.util.Properties()
@@ -176,10 +203,8 @@ func GenerateKeystore(opts KeystoreOptions) error {
         }
     }
 `
-			// Inject into android { block
 			if idx := strings.Index(gContent, "buildTypes {"); idx != -1 {
 				newGContent := gContent[:idx] + signingBlock + "\n    " + gContent[idx:]
-				// Enable release signingConfig
 				newGContent = strings.Replace(
 					newGContent,
 					"isMinifyEnabled = false",
@@ -187,9 +212,25 @@ func GenerateKeystore(opts KeystoreOptions) error {
 					1,
 				)
 				_ = os.WriteFile(gradlePath, []byte(newGContent), 0644)
-				fmt.Printf("✓ Configured release signing in %s\n", gradlePath)
+				if !opts.JSON {
+					fmt.Printf("✓ Configured release signing in %s\n", gradlePath)
+				}
 			}
 		}
+	}
+
+	if opts.JSON {
+		outputJSON(diagnostics.OutputEnvelope{
+			Success: true,
+			Command: "keystore",
+			Data: map[string]any{
+				"debug":           false,
+				"keystore":        opts.KeystoreName,
+				"alias":           opts.Alias,
+				"properties_file": "keystore.properties",
+			},
+		})
+		return nil
 	}
 
 	fmt.Println("\nSetup complete. Build the release packages:")
@@ -197,4 +238,88 @@ func GenerateKeystore(opts KeystoreOptions) error {
 	fmt.Println("  ./gradlew bundleRelease     # Builds the signed Google Play Bundle (AAB)")
 
 	return nil
+}
+
+func generateDebugMode(keytoolPath string, opts KeystoreOptions, fail func(error) error) error {
+	name := opts.KeystoreName
+	if name == "" || name == "release.keystore" {
+		name = "debug.keystore"
+	}
+	alias := opts.Alias
+	if alias == "" || alias == "release-key" {
+		alias = "androiddebugkey"
+	}
+	password := opts.Password
+	if password == "" {
+		password = "android"
+	}
+	cn := opts.CommonName
+	if cn == "" {
+		cn = "Android Debug"
+	}
+	org := opts.OrgName
+	if org == "" {
+		org = "Android"
+	}
+
+	destPath := filepath.Join(opts.TargetDir, name)
+	existed := false
+	if _, err := os.Stat(destPath); err == nil {
+		if !opts.Force {
+			existed = true
+		} else {
+			_ = os.Remove(destPath)
+		}
+	}
+
+	if !existed {
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fail(fmt.Errorf("failed to create directory for %s: %w", destPath, err))
+		}
+		dname := fmt.Sprintf("CN=%s, O=%s, C=US", cn, org)
+		cmd := exec.Command(
+			keytoolPath,
+			"-genkeypair",
+			"-keystore", destPath,
+			"-alias", alias,
+			"-keyalg", "RSA",
+			"-keysize", "2048",
+			"-validity", "10000",
+			"-storepass", password,
+			"-keypass", password,
+			"-dname", dname,
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fail(fmt.Errorf("keytool failed: %s\nOutput: %s", err, strings.TrimSpace(string(out))))
+		}
+	}
+
+	ensureGitignoreHas(opts.TargetDir, filepath.Base(destPath))
+
+	if opts.JSON {
+		outputJSON(diagnostics.OutputEnvelope{
+			Success: true,
+			Command: "keystore",
+			Data: map[string]any{
+				"debug":    true,
+				"keystore": name,
+				"alias":    alias,
+				"created":  !existed,
+			},
+		})
+		return nil
+	}
+
+	if existed {
+		fmt.Printf("✓ Debug keystore already exists at: %s\n", destPath)
+	} else {
+		fmt.Printf("✓ Debug keystore generated at: %s\n", destPath)
+	}
+	return nil
+}
+
+func outputJSON(v any) {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
 }

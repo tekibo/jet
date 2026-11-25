@@ -70,8 +70,8 @@ jet doctor
 | `jet init` | Scaffold a new Compose project | `jet init my-app` |
 | `jet doctor` | Audit Android SDK, JDK, tools, and licenses | `jet doctor` |
 | `jet run` | Build, install, launch activity, and stream logcat | `jet run my-app` |
-| `jet build` | Build Debug/Release APK or App Bundle (.aab) | `jet build --release my-app` |
-| `jet test` | Run unit tests with structured JSON reporting | `jet test my-app --json` |
+| `jet build` | Build Debug APK (default), Release APK, or App Bundle | `jet build my-app --json` |
+| `jet test` | Run unit tests across modules with structured JSON reporting | `jet test my-app --json` |
 | `jet icon` | Generate adaptive, monochrome, splash, & notification icons | `jet icon ./logo.png --bg "#1E88E5"` |
 | `jet add` | Add preset library to Version Catalog and Gradle | `jet add nav my-app` |
 | `jet devices` | List connected USB devices and running emulators | `jet devices` |
@@ -79,7 +79,7 @@ jet doctor
 | `jet add-screen` | Generate a Compose screen scaffold | `jet add-screen ProfileScreen my-app` |
 | `jet add-viewmodel` | Generate a UDF ViewModel with StateFlow | `jet add-viewmodel Profile my-app` |
 | `jet rename-pkg` | Rename package across files and directories | `jet rename-pkg --to com.co.app` |
-| `jet keystore` | Generate release keystore and signing configuration | `jet keystore my-app` |
+| `jet keystore` | Generate debug (`--debug`) or release keystore & signing config | `jet keystore my-app` |
 | `jet clean` | Clean build caches, stop daemons, and clear locks | `jet clean my-app --all` |
 
 ---

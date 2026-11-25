@@ -24,11 +24,13 @@ From an app's checkout (a git root):
 ```sh
 jet doctor        # the environment: JDK, SDK, tools, licenses. Prints the next step.
 jet init MyApp    # scaffold
-jet build --json  # compile; diagnostics as JSON (file, line, column, severity, message)
-jet test --json   # unit tests; failure locations as JSON
-jet run           # build, install, launch, stream logcat
+jet build --json  # compile (debug by default); full structured diagnostics + failed_tasks + raw_output_tail
+jet test --json   # multi-module unit tests; failure locations & build diagnostics as JSON
+jet run           # build, install, detect launcher activity, launch, stream logcat (or --json)
 jet devices       # connected devices and emulators
 ```
+
+In `--json` mode, failed commands exit non-zero (`1`) after printing valid JSON to `stdout`. Missing `gradlew` wrappers and standard local `debug.keystore` files configured by debug builds are restored automatically.
 
 The [android-jet skill](../skills/android-jet/SKILL.md) is the rulebook for agents: diagnose
 build errors with `jet build --json` (never raw `./gradlew` output), verify with

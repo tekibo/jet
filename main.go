@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"jet/cleaner"
 	"jet/depmanager"
 	"jet/device"
+	"jet/diagnostics"
 	"jet/doctor"
 	"jet/icon"
 	"jet/pkgchanger"
@@ -43,11 +45,14 @@ func main() {
 	switch command {
 	case "doctor":
 		if jsonMode {
-			doctor.RunDoctorJSON()
+			exitOnError("", doctor.RunDoctorJSON())
 			return
 		}
 		fmt.Println(banner)
-		doctor.RunDoctor(false)
+		report := doctor.RunDoctor(false)
+		if report.HasErrors {
+			os.Exit(1)
+		}
 
 	case "init":
 		initCmd := flag.NewFlagSet("init", flag.ExitOnError)
@@ -112,7 +117,7 @@ func main() {
 
 	case "devices":
 		if jsonMode {
-			device.ListDevicesJSON()
+			exitOnError("", device.ListDevicesJSON())
 			return
 		}
 		if err := device.ListDevices(); err != nil {
@@ -146,6 +151,7 @@ func main() {
 		runCmd := flag.NewFlagSet("run", flag.ExitOnError)
 		deviceFlag := runCmd.String("device", "", "Explicit Android device/emulator serial ID")
 		noLogsFlag := runCmd.Bool("no-logs", false, "Do not stream logcat output after launch")
+		runJSONFlag := runCmd.Bool("json", false, "Output machine-readable JSON diagnostics")
 
 		var targetDir string
 		var rawArgs []string
@@ -166,16 +172,15 @@ func main() {
 			}
 		}
 
-		if err := device.RunApp(targetDir, *deviceFlag, !*noLogsFlag, embeddedTemplates); err != nil {
-			fmt.Fprintf(os.Stderr, "Run error: %v\n", err)
-			os.Exit(1)
-		}
+		exitOnError("Run error", device.RunApp(targetDir, *deviceFlag, !*noLogsFlag, *runJSONFlag || jsonMode, embeddedTemplates))
 
 	case "build":
 		buildCmd := flag.NewFlagSet("build", flag.ExitOnError)
 		releaseFlag := buildCmd.Bool("release", false, "Build signed release APK")
 		aabFlag := buildCmd.Bool("aab", false, "Build signed Android App Bundle (.aab)")
 		jsonFlag := buildCmd.Bool("json", false, "Output machine-readable JSON diagnostics")
+		moduleFlag := buildCmd.String("module", "", "Target Gradle module (e.g. :app)")
+		variantFlag := buildCmd.String("variant", "", "Build variant/flavor (e.g. freeDebug)")
 
 		var targetDir string
 		var rawArgs []string
@@ -201,13 +206,12 @@ func main() {
 			Release:   *releaseFlag,
 			AAB:       *aabFlag,
 			JSON:      *jsonFlag || jsonMode,
+			Module:    *moduleFlag,
+			Variant:   *variantFlag,
 			Templates: embeddedTemplates,
 		}
 
-		if err := builder.BuildApp(opts); err != nil {
-			fmt.Fprintf(os.Stderr, "Build error: %v\n", err)
-			os.Exit(1)
-		}
+		exitOnError("Build error", builder.BuildApp(opts))
 
 	case "add":
 		var cleanArgs []string
@@ -232,10 +236,7 @@ func main() {
 			targetDir = cleanArgs[1]
 		}
 
-		if err := depmanager.AddDependency(targetDir, presetName, jsonMode); err != nil {
-			fmt.Fprintf(os.Stderr, "Error adding dependency: %v\n", err)
-			os.Exit(1)
-		}
+		exitOnError("Error adding dependency", depmanager.AddDependency(targetDir, presetName, jsonMode))
 
 	case "rename-pkg":
 		renameCmd := flag.NewFlagSet("rename-pkg", flag.ExitOnError)
@@ -275,8 +276,14 @@ func main() {
 
 	case "keystore":
 		keystoreCmd := flag.NewFlagSet("keystore", flag.ExitOnError)
-		nameFlag := keystoreCmd.String("name", "release.keystore", "Keystore filename")
-		aliasFlag := keystoreCmd.String("alias", "release-key", "Key alias name")
+		nameFlag := keystoreCmd.String("name", "", "Keystore filename (default release.keystore, or debug.keystore with --debug)")
+		aliasFlag := keystoreCmd.String("alias", "", "Key alias name")
+		passwordFlag := keystoreCmd.String("password", "", "Keystore password (non-interactive)")
+		cnFlag := keystoreCmd.String("cn", "", "Certificate Common Name (CN)")
+		orgFlag := keystoreCmd.String("org", "", "Certificate Organization (O)")
+		debugFlag := keystoreCmd.Bool("debug", false, "Generate standard debug.keystore non-interactively")
+		forceFlag := keystoreCmd.Bool("force", false, "Overwrite existing keystore without prompting")
+		ksJSONFlag := keystoreCmd.Bool("json", false, "Output machine-readable JSON")
 
 		var targetDir string
 		var rawArgs []string
@@ -297,17 +304,23 @@ func main() {
 			}
 		}
 
-		fmt.Println(banner)
+		isJSON := *ksJSONFlag || jsonMode
+		if !isJSON {
+			fmt.Println(banner)
+		}
 		opts := signing.KeystoreOptions{
 			TargetDir:    targetDir,
 			KeystoreName: *nameFlag,
 			Alias:        *aliasFlag,
+			Password:     *passwordFlag,
+			CommonName:   *cnFlag,
+			OrgName:      *orgFlag,
+			Debug:        *debugFlag,
+			Force:        *forceFlag,
+			JSON:         isJSON,
 		}
 
-		if err := signing.GenerateKeystore(opts); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating keystore: %v\n", err)
-			os.Exit(1)
-		}
+		exitOnError("Error generating keystore", signing.GenerateKeystore(opts))
 
 	case "add-screen":
 		if len(os.Args) < 3 {
@@ -403,10 +416,7 @@ func main() {
 			JSON:             jsonMode,
 		}
 
-		if err := icon.RunIconGenerator(opts); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating icon suite: %v\n", err)
-			os.Exit(1)
-		}
+		exitOnError("Error generating icon suite", icon.RunIconGenerator(opts))
 
 	case "test":
 		targetDir := "."
@@ -417,13 +427,12 @@ func main() {
 			}
 		}
 
-		if err := tester.RunTests(targetDir, jsonMode, embeddedTemplates); err != nil {
-			os.Exit(1)
-		}
+		exitOnError("", tester.RunTests(targetDir, jsonMode, embeddedTemplates))
 
 	case "clean":
 		cleanCmd := flag.NewFlagSet("clean", flag.ExitOnError)
 		allFlag := cleanCmd.Bool("all", false, "Wipe .gradle cache, build/ directories, and stop background daemons")
+		cleanJSONFlag := cleanCmd.Bool("json", false, "Output machine-readable JSON")
 
 		var targetDir string
 		var rawArgs []string
@@ -440,9 +449,7 @@ func main() {
 			targetDir = "."
 		}
 
-		if err := cleaner.RunClean(targetDir, *allFlag, jsonMode, embeddedTemplates); err != nil {
-			os.Exit(1)
-		}
+		exitOnError("", cleaner.RunClean(targetDir, *allFlag, *cleanJSONFlag || jsonMode, embeddedTemplates))
 
 	case "agents":
 		sub := ""
@@ -496,7 +503,7 @@ func printUsage() {
 	fmt.Println("  jet devices                    List connected physical devices & running emulators")
 	fmt.Println("  jet emu [start <name>]         List or launch Android Virtual Devices (AVDs)")
 	fmt.Println("  jet run [DIR] [--device <id>]  Build, install, launch Activity, & stream logs")
-	fmt.Println("  jet build [--release] [--aab]  Build debug APK, release APK, or App Bundle (.aab)")
+	fmt.Println("  jet build [--release] [--aab]  Build debug APK (default), release APK, or .aab")
 	fmt.Println("  jet test [TARGET_DIR]          Run unit tests with structured failure parsing")
 	fmt.Println("  jet clean [TARGET_DIR] [--all] Clean build caches, daemons, and lock files")
 	fmt.Println("  jet agents install|uninstall   Link jet, the android-jet skill and the agent instructions")
@@ -505,7 +512,7 @@ func printUsage() {
 	fmt.Println("  jet add-screen <NAME> [DIR]    Generate a new Material 3 Expressive Composable screen")
 	fmt.Println("  jet add-viewmodel <NAME> [DIR] Generate a new UDF ViewModel with StateFlow")
 	fmt.Println("  jet rename-pkg [DIR] [--to]    Rename package across source tree and manifests")
-	fmt.Println("  jet keystore [TARGET_DIR]      Generate production release keystore & signing config")
+	fmt.Println("  jet keystore [TARGET_DIR]      Generate debug (--debug) or release keystore & signing config")
 	fmt.Println("  jet help                       Show this help message")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -523,6 +530,24 @@ func printUsage() {
 	fmt.Println("  jet keystore my-app")
 	fmt.Println("  jet build --release my-app")
 	fmt.Println()
+}
+
+func exitOnError(prefix string, err error) {
+	if err == nil {
+		return
+	}
+	var exitErr diagnostics.ExitError
+	if errors.As(err, &exitErr) {
+		code := exitErr.Code
+		if code == 0 {
+			code = 1
+		}
+		os.Exit(code)
+	}
+	if prefix != "" {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", prefix, err)
+	}
+	os.Exit(1)
 }
 
 func isJSONRequested() bool {

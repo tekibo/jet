@@ -90,7 +90,7 @@ func RunDoctor(quiet bool) *DoctorReport {
 	return report
 }
 
-func RunDoctorJSON() {
+func RunDoctorJSON() error {
 	report := RunDoctor(true)
 	env := diagnostics.OutputEnvelope{
 		Success: !report.HasErrors,
@@ -101,9 +101,16 @@ func RunDoctorJSON() {
 			"checks":     report.Results,
 		},
 	}
+	if report.HasErrors {
+		env.Error = nextStep(report)
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(env)
+	if report.HasErrors {
+		return diagnostics.ExitError{Code: 1, Err: fmt.Errorf("%s", env.Error)}
+	}
+	return nil
 }
 
 func checkJava() CheckResult {

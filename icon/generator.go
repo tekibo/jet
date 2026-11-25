@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"jet/diagnostics"
 )
 
 type Options struct {
@@ -76,7 +78,7 @@ func RunIconGenerator(opts Options) error {
 			if opts.JSON {
 				result.Error = err.Error()
 				printJSON(result)
-				return nil
+				return diagnostics.ExitError{Code: 1, Err: err}
 			}
 			return err
 		}
@@ -437,7 +439,7 @@ func handleErr(err error, jsonMode bool, res *GenerationResult) error {
 		res.Success = false
 		res.Error = err.Error()
 		printJSON(res)
-		return nil
+		return diagnostics.ExitError{Code: 1, Err: err}
 	}
 	return err
 }

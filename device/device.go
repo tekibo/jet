@@ -1,6 +1,7 @@
 package device
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -11,8 +12,8 @@ import (
 	"time"
 
 	"jet/diagnostics"
-	"jet/pkgchanger"
 	"jet/scaffold"
+	"jet/signing"
 )
 
 type DeviceInfo struct {
@@ -139,7 +140,7 @@ func ListDevices() error {
 	return nil
 }
 
-func ListDevicesJSON() {
+func ListDevicesJSON() error {
 	devices, err := GetDevices()
 	if err != nil {
 		outputJSON(diagnostics.OutputEnvelope{
@@ -147,13 +148,14 @@ func ListDevicesJSON() {
 			Command: "devices",
 			Error:   err.Error(),
 		})
-		return
+		return diagnostics.ExitError{Code: 1, Err: err}
 	}
 	outputJSON(diagnostics.OutputEnvelope{
 		Success: true,
 		Command: "devices",
 		Data:    devices,
 	})
+	return nil
 }
 
 func outputJSON(v any) {
@@ -248,26 +250,43 @@ func StartEmulator(avdName string, headless bool) error {
 	return nil
 }
 
-func RunApp(targetDir string, explicitDevice string, streamLogs bool, templatesFS fs.FS) error {
+func RunApp(targetDir string, explicitDevice string, streamLogs bool, jsonMode bool, templatesFS fs.FS) error {
 	if targetDir == "" {
 		targetDir = "."
 	}
+	start := time.Now()
 
-	// 1. Detect package
-	pkg, err := pkgchanger.DetectPackage(targetDir)
-	if err != nil {
-		return fmt.Errorf("could not detect package in %s: %w", targetDir, err)
+	failJSON := func(err error, parsed *diagnostics.GradleParseResult) error {
+		if jsonMode {
+			env := diagnostics.OutputEnvelope{
+				Success:    false,
+				Command:    "run",
+				Error:      err.Error(),
+				DurationMs: time.Since(start).Milliseconds(),
+			}
+			if parsed != nil {
+				if parsed.SummaryError != "" && parsed.SummaryError != "build failed" {
+					env.Error = parsed.SummaryError
+				}
+				env.FailedTasks = parsed.FailedTasks
+				env.Diagnostics = parsed.Diagnostics
+				env.RawOutputTail = parsed.RawOutputTail
+			}
+			outputJSON(env)
+			return diagnostics.ExitError{Code: 1, Err: err}
+		}
+		return err
 	}
 
-	// 2. Select Device
+	// 1. Select Device
 	devices, err := GetDevices()
 	if err != nil {
-		return err
+		return failJSON(err, nil)
 	}
 
 	var targetDevice DeviceInfo
 	if len(devices) == 0 {
-		return fmt.Errorf("no Android devices or emulators connected. Plug in a device or run 'jet emu'")
+		return failJSON(fmt.Errorf("no Android devices or emulators connected. Plug in a device or run 'jet emu'"), nil)
 	}
 
 	if explicitDevice != "" {
@@ -280,52 +299,92 @@ func RunApp(targetDir string, explicitDevice string, streamLogs bool, templatesF
 			}
 		}
 		if !found {
-			return fmt.Errorf("device '%s' not found among connected devices", explicitDevice)
+			return failJSON(fmt.Errorf("device '%s' not found among connected devices", explicitDevice), nil)
 		}
 	} else {
-		// Pick first active device
 		targetDevice = devices[0]
 	}
 
-	fmt.Printf("[i] Target device: %s (%s, %s)\n", targetDevice.Serial, targetDevice.Model, targetDevice.Type)
-
-	// 3. Build & Install via Gradle Wrapper
-	if err := scaffold.EnsureGradleWrapper(templatesFS, targetDir, false); err != nil {
-		return err
+	if !jsonMode {
+		fmt.Printf("[i] Target device: %s (%s, %s)\n", targetDevice.Serial, targetDevice.Model, targetDevice.Type)
 	}
 
-	fmt.Println("[i] Building & installing debug APK...")
-	cmd := exec.Command("./gradlew", "installDebug")
+	// 2. Ensure Gradle wrapper and debug keystore
+	if err := scaffold.EnsureGradleWrapper(templatesFS, targetDir, jsonMode); err != nil {
+		return failJSON(err, nil)
+	}
+	if _, err := signing.EnsureDebugKeystore(targetDir, jsonMode); err != nil {
+		return failJSON(err, nil)
+	}
+
+	// 3. Build & Install via Gradle Wrapper
+	if !jsonMode {
+		fmt.Println("[i] Building & installing debug APK...")
+	}
+	cmd := exec.Command("./gradlew", "installDebug", "--console=plain")
 	cmd.Dir = targetDir
 	cmd.Env = append(os.Environ(), fmt.Sprintf("ANDROID_SERIAL=%s", targetDevice.Serial))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	var outBuf bytes.Buffer
+	if jsonMode {
+		cmd.Stdout = &outBuf
+		cmd.Stderr = &outBuf
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Run(); err != nil {
+		if jsonMode {
+			parsed := diagnostics.ParseGradleResult(outBuf.String())
+			return failJSON(fmt.Errorf("installation failed: %w", err), &parsed)
+		}
 		return fmt.Errorf("installation failed: %w", err)
 	}
 
-	// 4. Launch Main Activity via adb shell am start
-	adb, err := FindAdb()
+	// 4. Detect package & launcher activity (using merged manifest after installDebug)
+	pkg, activity, err := scaffold.DetectAppLaunchTarget(targetDir)
 	if err != nil {
-		return err
+		return failJSON(err, nil)
 	}
 
-	fmt.Printf("[i] Launching %s/.MainActivity on device...\n", pkg)
-	launchCmd := exec.Command(adb, "-s", targetDevice.Serial, "shell", "am", "start", "-n", fmt.Sprintf("%s/.MainActivity", pkg))
+	component := fmt.Sprintf("%s/%s", pkg, activity)
+	adb, err := FindAdb()
+	if err != nil {
+		return failJSON(err, nil)
+	}
+
+	if !jsonMode {
+		fmt.Printf("[i] Launching %s on device...\n", component)
+	}
+	launchCmd := exec.Command(adb, "-s", targetDevice.Serial, "shell", "am", "start", "-n", component)
 	lOut, err := launchCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to launch activity: %s (%w)", string(lOut), err)
+		return failJSON(fmt.Errorf("failed to launch activity %s: %s (%w)", component, strings.TrimSpace(string(lOut)), err), nil)
 	}
+
+	if jsonMode {
+		outputJSON(diagnostics.OutputEnvelope{
+			Success:    true,
+			Command:    "run",
+			DurationMs: time.Since(start).Milliseconds(),
+			Data: map[string]any{
+				"device":    targetDevice.Serial,
+				"package":   pkg,
+				"activity":  activity,
+				"component": component,
+			},
+		})
+		return nil
+	}
+
 	fmt.Printf("✓ %s\n", strings.TrimSpace(string(lOut)))
 
 	// 5. Optional log streaming
 	if streamLogs {
 		fmt.Printf("\n[i] Streaming logcat for %s (Press Ctrl+C to stop)...\n\n", pkg)
-		// Small delay to let process initialize
 		time.Sleep(500 * time.Millisecond)
 
-		// Get PID of the launched app
 		pidCmd := exec.Command(adb, "-s", targetDevice.Serial, "shell", "pidof", "-s", pkg)
 		pidBytes, _ := pidCmd.Output()
 		pid := strings.TrimSpace(string(pidBytes))
@@ -334,7 +393,6 @@ func RunApp(targetDir string, explicitDevice string, streamLogs bool, templatesF
 		if pid != "" {
 			logCmd = exec.Command(adb, "-s", targetDevice.Serial, "logcat", fmt.Sprintf("--pid=%s", pid))
 		} else {
-			// Fallback filter by tag or app name
 			logCmd = exec.Command(adb, "-s", targetDevice.Serial, "logcat", "-v", "color", "*:I")
 		}
 

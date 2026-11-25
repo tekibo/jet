@@ -188,7 +188,7 @@ func AddDependency(targetDir, presetName string, isJSON bool) error {
 				Command: "add",
 				Error:   fmt.Sprintf("unknown preset '%s'", presetName),
 			})
-			return nil
+			return diagnostics.ExitError{Code: 1, Err: fmt.Errorf("preset '%s' not found", presetName)}
 		}
 		fmt.Printf("Unknown dependency preset: '%s'\n\n", presetName)
 		ListPresets()
@@ -205,7 +205,7 @@ func AddDependency(targetDir, presetName string, isJSON bool) error {
 				Command: "add",
 				Error:   fmt.Sprintf("libs.versions.toml not found at %s", tomlPath),
 			})
-			return nil
+			return diagnostics.ExitError{Code: 1, Err: err}
 		}
 		return fmt.Errorf("libs.versions.toml not found at %s", tomlPath)
 	}
@@ -216,18 +216,34 @@ func AddDependency(targetDir, presetName string, isJSON bool) error {
 				Command: "add",
 				Error:   fmt.Sprintf("app/build.gradle.kts not found at %s", gradlePath),
 			})
-			return nil
+			return diagnostics.ExitError{Code: 1, Err: err}
 		}
 		return fmt.Errorf("app/build.gradle.kts not found at %s", gradlePath)
 	}
 
 	// 1. Update libs.versions.toml
 	if err := updateToml(tomlPath, preset); err != nil {
+		if isJSON {
+			outputJSON(diagnostics.OutputEnvelope{
+				Success: false,
+				Command: "add",
+				Error:   err.Error(),
+			})
+			return diagnostics.ExitError{Code: 1, Err: err}
+		}
 		return err
 	}
 
 	// 2. Update app/build.gradle.kts
 	if err := updateBuildGradle(gradlePath, preset); err != nil {
+		if isJSON {
+			outputJSON(diagnostics.OutputEnvelope{
+				Success: false,
+				Command: "add",
+				Error:   err.Error(),
+			})
+			return diagnostics.ExitError{Code: 1, Err: err}
+		}
 		return err
 	}
 
@@ -236,8 +252,8 @@ func AddDependency(targetDir, presetName string, isJSON bool) error {
 			Success: true,
 			Command: "add",
 			Data: map[string]any{
-				"preset":            preset.Name,
-				"target_dir":        targetDir,
+				"preset":             preset.Name,
+				"target_dir":         targetDir,
 				"added_dependencies": preset.GradleDeps,
 			},
 		})
