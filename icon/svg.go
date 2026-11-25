@@ -3,6 +3,7 @@ package icon
 import (
 	"encoding/xml"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -110,20 +111,49 @@ func ParseSVG(filePath string) (*ParsedSVG, error) {
 
 // ToVectorDrawable converts parsed SVG paths into an Android VectorDrawable XML.
 func (s *ParsedSVG) ToVectorDrawable(dpW, dpH float64) string {
+	return s.ToSafeVectorDrawable(dpW, dpH, 1.0)
+}
+
+// ToSafeVectorDrawable converts parsed SVG paths into a centered Android VectorDrawable XML
+// scaled to occupy safeFraction of the target viewport.
+func (s *ParsedSVG) ToSafeVectorDrawable(dpW, dpH, safeFraction float64) string {
 	var sb strings.Builder
 	sb.WriteString("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
-	sb.WriteString(fmt.Sprintf("<vector xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"))
+	sb.WriteString("<vector xmlns:android=\"http://schemas.android.com/apk/res/android\"\n")
 	sb.WriteString(fmt.Sprintf("    android:width=\"%.0fdp\"\n", dpW))
 	sb.WriteString(fmt.Sprintf("    android:height=\"%.0fdp\"\n", dpH))
-	sb.WriteString(fmt.Sprintf("    android:viewportWidth=\"%.1f\"\n", s.ViewportWidth))
-	sb.WriteString(fmt.Sprintf("    android:viewportHeight=\"%.1f\">\n", s.ViewportHeight))
+	sb.WriteString(fmt.Sprintf("    android:viewportWidth=\"%.1f\"\n", dpW))
+	sb.WriteString(fmt.Sprintf("    android:viewportHeight=\"%.1f\">\n", dpH))
 
-	for _, p := range s.Paths {
-		sb.WriteString("    <path\n")
-		sb.WriteString(fmt.Sprintf("        android:fillColor=\"%s\"\n", p.FillColor))
-		sb.WriteString(fmt.Sprintf("        android:pathData=\"%s\" />\n", p.Data))
+	vw := s.ViewportWidth
+	vh := s.ViewportHeight
+	if vw <= 0 {
+		vw = 24
+	}
+	if vh <= 0 {
+		vh = 24
+	}
+	if safeFraction <= 0 || safeFraction > 1.0 {
+		safeFraction = 1.0
 	}
 
+	scale := math.Min((dpW*safeFraction)/vw, (dpH*safeFraction)/vh)
+	tx := (dpW - vw*scale) / 2.0
+	ty := (dpH - vh*scale) / 2.0
+
+	sb.WriteString("    <group\n")
+	sb.WriteString(fmt.Sprintf("        android:scaleX=\"%.4f\"\n", scale))
+	sb.WriteString(fmt.Sprintf("        android:scaleY=\"%.4f\"\n", scale))
+	sb.WriteString(fmt.Sprintf("        android:translateX=\"%.4f\"\n", tx))
+	sb.WriteString(fmt.Sprintf("        android:translateY=\"%.4f\">\n", ty))
+
+	for _, p := range s.Paths {
+		sb.WriteString("        <path\n")
+		sb.WriteString(fmt.Sprintf("            android:fillColor=\"%s\"\n", p.FillColor))
+		sb.WriteString(fmt.Sprintf("            android:pathData=\"%s\" />\n", p.Data))
+	}
+
+	sb.WriteString("    </group>\n")
 	sb.WriteString("</vector>\n")
 	return sb.String()
 }

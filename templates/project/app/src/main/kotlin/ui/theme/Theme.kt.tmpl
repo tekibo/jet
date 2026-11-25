@@ -1,7 +1,11 @@
 package {{.PackageName}}.ui.theme
 
+import android.content.Context
 import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
@@ -9,25 +13,195 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 
+val AppDarkColorScheme = darkColorScheme(
+    primary = DarkPrimary,
+    onPrimary = DarkOnPrimary,
+    primaryContainer = DarkPrimaryContainer,
+    onPrimaryContainer = DarkOnPrimaryContainer,
+    inversePrimary = DarkInversePrimary,
+    secondary = DarkSecondary,
+    onSecondary = DarkOnSecondary,
+    secondaryContainer = DarkSecondaryContainer,
+    onSecondaryContainer = DarkOnSecondaryContainer,
+    tertiary = DarkTertiary,
+    onTertiary = DarkOnTertiary,
+    tertiaryContainer = DarkTertiaryContainer,
+    onTertiaryContainer = DarkOnTertiaryContainer,
+    background = DarkBackground,
+    onBackground = DarkOnBackground,
+    surface = DarkSurface,
+    onSurface = DarkOnSurface,
+    surfaceVariant = DarkSurfaceVariant,
+    onSurfaceVariant = DarkOnSurfaceVariant,
+    surfaceTint = DarkSurfaceTint,
+    inverseSurface = DarkInverseSurface,
+    inverseOnSurface = DarkInverseOnSurface,
+    error = DarkError,
+    onError = DarkOnError,
+    errorContainer = DarkErrorContainer,
+    onErrorContainer = DarkOnErrorContainer,
+    outline = DarkOutline,
+    outlineVariant = DarkOutlineVariant,
+    scrim = DarkScrim,
+    surfaceBright = DarkSurfaceBright,
+    surfaceDim = DarkSurfaceDim,
+    surfaceContainerLowest = DarkSurfaceContainerLowest,
+    surfaceContainerLow = DarkSurfaceContainerLow,
+    surfaceContainer = DarkSurfaceContainer,
+    surfaceContainerHigh = DarkSurfaceContainerHigh,
+    surfaceContainerHighest = DarkSurfaceContainerHighest
+)
+
+val AppLightColorScheme = lightColorScheme(
+    primary = LightPrimary,
+    onPrimary = LightOnPrimary,
+    primaryContainer = LightPrimaryContainer,
+    onPrimaryContainer = LightOnPrimaryContainer,
+    inversePrimary = LightInversePrimary,
+    secondary = LightSecondary,
+    onSecondary = LightOnSecondary,
+    secondaryContainer = LightSecondaryContainer,
+    onSecondaryContainer = LightOnSecondaryContainer,
+    tertiary = LightTertiary,
+    onTertiary = LightOnTertiary,
+    tertiaryContainer = LightTertiaryContainer,
+    onTertiaryContainer = LightOnTertiaryContainer,
+    background = LightBackground,
+    onBackground = LightOnBackground,
+    surface = LightSurface,
+    onSurface = LightOnSurface,
+    surfaceVariant = LightSurfaceVariant,
+    onSurfaceVariant = LightOnSurfaceVariant,
+    surfaceTint = LightSurfaceTint,
+    inverseSurface = LightInverseSurface,
+    inverseOnSurface = LightInverseOnSurface,
+    error = LightError,
+    onError = LightOnError,
+    errorContainer = LightErrorContainer,
+    onErrorContainer = LightOnErrorContainer,
+    outline = LightOutline,
+    outlineVariant = LightOutlineVariant,
+    scrim = LightScrim,
+    surfaceBright = LightSurfaceBright,
+    surfaceDim = LightSurfaceDim,
+    surfaceContainerLowest = LightSurfaceContainerLowest,
+    surfaceContainerLow = LightSurfaceContainerLow,
+    surfaceContainer = LightSurfaceContainer,
+    surfaceContainerHigh = LightSurfaceContainerHigh,
+    surfaceContainerHighest = LightSurfaceContainerHighest
+)
+
+/**
+ * Resolves the active Material 3 ColorScheme for Compose and native View hosts.
+ * Uses Material You dynamic wallpaper colors on Android 12+ when genuine wallpaper
+ * extraction is active, discarding static OEM/AOSP fallback presets (such as
+ * HyperOS's `#165C7D` preset or un-overlaid AOSP defaults) as false positives.
+ */
+fun resolveAppColorScheme(
+    context: Context,
+    darkTheme: Boolean,
+    dynamicColor: Boolean = true
+): ColorScheme {
+    if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val systemScheme = if (darkTheme) {
+            dynamicDarkColorScheme(context)
+        } else {
+            dynamicLightColorScheme(context)
+        }
+        val overlayJson = readThemeCustomizationOverlayJson(context)
+        if (!isFallbackMonetConfiguration(overlayJson, systemScheme.primary.toArgb())) {
+            return systemScheme
+        }
+    }
+    return if (darkTheme) AppDarkColorScheme else AppLightColorScheme
+}
+
+private const val SETTING_THEME_CUSTOMIZATION_OVERLAY_PACKAGES = "theme_customization_overlay_packages"
+
+private val KNOWN_FALLBACK_MONET_SEEDS = setOf(
+    "#165C7D",
+    "#FF165C7D",
+    "#475D92",
+    "#FF475D92",
+    "#445E91",
+    "#FF445E91"
+)
+
+private val KNOWN_UNOVERLAID_PRIMARY_ARGBS = setOf(
+    0xFF00668B.toInt(),
+    0xFF00658B.toInt(),
+    0xFF76D1FF.toInt(),
+    0xFF86CFFF.toInt(),
+    0xFF8ACEFF.toInt(),
+    0xFF445E91.toInt(),
+    0xFFADC6FF.toInt(),
+    0xFF475D92.toInt(),
+    0xFFB0C6FF.toInt()
+)
+
+private fun readThemeCustomizationOverlayJson(context: Context): String? = runCatching {
+    Settings.Secure.getString(context.contentResolver, SETTING_THEME_CUSTOMIZATION_OVERLAY_PACKAGES)
+}.getOrNull()
+
+internal fun isFallbackMonetConfiguration(
+    overlayPackagesJson: String?,
+    primaryColorArgb: Int
+): Boolean {
+    val colorSource = extractJsonStringField(overlayPackagesJson, "android.theme.customization.color_source")
+        .lowercase()
+    val systemPalette = normalizeHexToken(
+        extractJsonStringField(overlayPackagesJson, "android.theme.customization.system_palette")
+    )
+    val accentColor = normalizeHexToken(
+        extractJsonStringField(overlayPackagesJson, "android.theme.customization.accent_color")
+    )
+
+    if (colorSource == "home_wallpaper" || colorSource == "lock_wallpaper") {
+        return false
+    }
+
+    if (colorSource == "preset") {
+        return systemPalette in KNOWN_FALLBACK_MONET_SEEDS ||
+            accentColor in KNOWN_FALLBACK_MONET_SEEDS ||
+            (systemPalette.isEmpty() && accentColor.isEmpty())
+    }
+
+    return primaryColorArgb in KNOWN_UNOVERLAID_PRIMARY_ARGBS
+}
+
+private fun extractJsonStringField(json: String?, key: String): String {
+    if (json.isNullOrBlank()) return ""
+    val pattern = Regex(""""${Regex.escape(key)}"\s*:\s*"([^"]*)"""")
+    return pattern.find(json)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+}
+
+private fun normalizeHexToken(raw: String): String {
+    if (raw.isBlank()) return ""
+    val cleaned = raw.trim().uppercase()
+    return if (cleaned.startsWith("#")) cleaned else "#$cleaned"
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AppTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> darkColorScheme()
-        else -> lightColorScheme()
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val colorScheme = remember(context, configuration, darkTheme, dynamicColor) {
+        resolveAppColorScheme(context, darkTheme, dynamicColor)
     }
 
     MaterialExpressiveTheme(
         colorScheme = colorScheme,
+        typography = AppTypography,
         motionScheme = MotionScheme.expressive(),
         content = content
     )

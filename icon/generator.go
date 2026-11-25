@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"jet/diagnostics"
+	"jet/scaffold"
 )
 
 type Options struct {
@@ -24,7 +25,9 @@ type Options struct {
 	NotificationPath string
 	SplashPath       string
 	ProjectDir       string
+	Module           string
 	PaddingPercent   float64
+	SplashPlate      bool
 	JSON             bool
 }
 
@@ -115,7 +118,8 @@ func RunIconGenerator(opts Options) error {
 		srcImg = img
 	}
 
-	resDir := filepath.Join(opts.ProjectDir, "app/src/main/res")
+	modRel := resolveIconModuleRel(opts.ProjectDir, opts.Module)
+	resDir := filepath.Join(opts.ProjectDir, modRel, "src", "main", "res")
 	if err := os.MkdirAll(resDir, 0755); err != nil {
 		return handleErr(err, opts.JSON, &result)
 	}
@@ -234,42 +238,53 @@ func RunIconGenerator(opts Options) error {
 
 	// 6. Generate Android 12+ Splash Screen Icon
 	splashDir := filepath.Join(resDir, "drawable")
+	splashNoDpiDir := filepath.Join(resDir, "drawable-nodpi")
 	_ = os.MkdirAll(splashDir, 0755)
+	_ = os.MkdirAll(splashNoDpiDir, 0755)
 
-	if parsedSVG != nil {
-		// If SVG, output VectorDrawable XML
+	// Remove any stale conflicting splash drawable formats so AAPT2 never sees duplicates.
+	for _, stale := range []string{
+		filepath.Join(splashDir, "ic_splash_logo.xml"),
+		filepath.Join(splashDir, "ic_splash_logo.png"),
+		filepath.Join(splashNoDpiDir, "ic_splash_logo.png"),
+	} {
+		_ = os.Remove(stale)
+	}
+
+	hasCustomRasterSplash := opts.SplashPath != "" || fileExists(filepath.Join(opts.ProjectDir, "assets/icon/splash.png"))
+	useSplashPlate := opts.SplashPlate
+	if parsedSVG != nil && !hasCustomRasterSplash {
 		splashXMLPath := filepath.Join(splashDir, "ic_splash_logo.xml")
-		_ = os.WriteFile(splashXMLPath, []byte(parsedSVG.ToVectorDrawable(288, 288)), 0644)
+		_ = os.WriteFile(splashXMLPath, []byte(parsedSVG.ToSafeVectorDrawable(288, 288, 0.50)), 0644)
 		result.GeneratedFiles = append(result.GeneratedFiles, relPath(opts.ProjectDir, splashXMLPath))
+		useSplashPlate = true
 	} else {
-		// Output 288dp splash PNG (fits in 192dp circle)
-		splashCanvas := FitSafeZone(splashImg, 288*2, 288*2, 0.66)
-		splashPNGPath := filepath.Join(splashDir, "ic_splash_logo.png")
+		if !opts.SplashPlate && !HasOpaqueCorners(splashImg) {
+			useSplashPlate = true
+		}
+		splashCanvas := CreateSplashIcon(splashImg, 512, useSplashPlate)
+		splashPNGPath := filepath.Join(splashNoDpiDir, "ic_splash_logo.png")
 		if err := savePNG(splashPNGPath, splashCanvas); err == nil {
 			result.GeneratedFiles = append(result.GeneratedFiles, relPath(opts.ProjectDir, splashPNGPath))
 		}
 	}
 
+	syncSplashThemes(resDir, useSplashPlate, opts.ProjectDir, &result)
+
 	// 7. Generate Google Play Store 512x512 Icon
 	playBg := CreateSolidCanvas(512, 512, bgParsed)
 	playFg := FitSafeZone(srcImg, 512, 512, 0.75)
 	playComposite := CompositeOver(playBg, playFg)
-	playPath := filepath.Join(opts.ProjectDir, "app/playstore-icon.png")
+	playPath := filepath.Join(opts.ProjectDir, modRel, "playstore-icon.png")
 	if err := savePNG(playPath, playComposite); err == nil {
 		result.GeneratedFiles = append(result.GeneratedFiles, relPath(opts.ProjectDir, playPath))
 	}
 
-	// 8. Update AndroidManifest.xml if it uses system fallback
-	manifestPath := filepath.Join(opts.ProjectDir, "app/src/main/AndroidManifest.xml")
+	// 8. Update AndroidManifest.xml so both icon and roundIcon point to @mipmap/ic_launcher*
+	manifestPath := filepath.Join(opts.ProjectDir, modRel, "src", "main", "AndroidManifest.xml")
 	if manifestData, err := os.ReadFile(manifestPath); err == nil {
-		manifestStr := string(manifestData)
-		if strings.Contains(manifestStr, "@android:drawable/sym_def_app_icon") {
-			manifestStr = strings.ReplaceAll(manifestStr, "@android:drawable/sym_def_app_icon", "@mipmap/ic_launcher")
-			// Make sure roundIcon uses ic_launcher_round
-			roundRegex := regexp.MustCompile(`android:roundIcon="[^"]+"`)
-			manifestStr = roundRegex.ReplaceAllString(manifestStr, `android:roundIcon="@mipmap/ic_launcher_round"`)
-			_ = os.WriteFile(manifestPath, []byte(manifestStr), 0644)
-		}
+		manifestStr := ensureManifestLauncherIcons(string(manifestData))
+		_ = os.WriteFile(manifestPath, []byte(manifestStr), 0644)
 	}
 
 	result.Success = true
@@ -432,6 +447,87 @@ func relPath(base, target string) string {
 		return target
 	}
 	return rel
+}
+
+func resolveIconModuleRel(projectDir, moduleFlag string) string {
+	mod := strings.TrimSpace(moduleFlag)
+	if mod == "" {
+		mod = scaffold.DetectPrimaryAppModule(projectDir)
+	}
+	mod = strings.TrimPrefix(mod, ":")
+	if mod == "" {
+		return "app"
+	}
+	return filepath.FromSlash(strings.ReplaceAll(mod, ":", "/"))
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func ensureManifestLauncherIcons(manifest string) string {
+	iconRe := regexp.MustCompile(`android:icon="[^"]+"`)
+	roundRe := regexp.MustCompile(`android:roundIcon="[^"]+"`)
+
+	if iconRe.MatchString(manifest) {
+		manifest = iconRe.ReplaceAllString(manifest, `android:icon="@mipmap/ic_launcher"`)
+	}
+	if roundRe.MatchString(manifest) {
+		manifest = roundRe.ReplaceAllString(manifest, `android:roundIcon="@mipmap/ic_launcher_round"`)
+	} else if strings.Contains(manifest, `android:icon="@mipmap/ic_launcher"`) {
+		manifest = strings.Replace(
+			manifest,
+			`android:icon="@mipmap/ic_launcher"`,
+			"android:icon=\"@mipmap/ic_launcher\"\n        android:roundIcon=\"@mipmap/ic_launcher_round\"",
+			1,
+		)
+	}
+	return manifest
+}
+
+func syncSplashThemes(resDir string, usePlate bool, projectDir string, result *GenerationResult) {
+	// Update themes.xml / values-v33/themes.xml only when using jet's Theme.App.SplashScreen style,
+	// preserving custom project theme structures.
+	for _, relTheme := range []string{
+		filepath.Join("values", "themes.xml"),
+		filepath.Join("values-v33", "themes.xml"),
+	} {
+		p := filepath.Join(resDir, relTheme)
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		content := string(data)
+		if !strings.Contains(content, "Theme.App.SplashScreen") {
+			continue
+		}
+
+		parent := "Theme.SplashScreen"
+		if usePlate {
+			parent = "Theme.SplashScreen.IconBackground"
+		}
+		parentRe := regexp.MustCompile(`(<style\s+name="Theme\.App\.SplashScreen"\s+parent=")[^"]+(")`)
+		content = parentRe.ReplaceAllString(content, "${1}"+parent+"${2}")
+
+		animIconRe := regexp.MustCompile(`(<item\s+name="windowSplashScreenAnimatedIcon">)[^<]+(</item>)`)
+		content = animIconRe.ReplaceAllString(content, "${1}@drawable/ic_splash_logo${2}")
+
+		plateLineRe := regexp.MustCompile(`(?m)^\s*<item\s+name="windowSplashScreenIconBackgroundColor">[^<]+</item>\r?\n?`)
+		content = plateLineRe.ReplaceAllString(content, "")
+		if usePlate {
+			content = strings.Replace(
+				content,
+				`<item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>`,
+				"<item name=\"windowSplashScreenAnimatedIcon\">@drawable/ic_splash_logo</item>\n        <item name=\"windowSplashScreenIconBackgroundColor\">@color/ic_launcher_background</item>",
+				1,
+			)
+		}
+
+		if err := os.WriteFile(p, []byte(content), 0644); err == nil {
+			result.GeneratedFiles = append(result.GeneratedFiles, relPath(projectDir, p))
+		}
+	}
 }
 
 func handleErr(err error, jsonMode bool, res *GenerationResult) error {

@@ -1,7 +1,7 @@
 # Architecture guidelines
 
 1. **Jetpack Compose** - all UI is `@Composable` Kotlin functions; no XML layouts.
-2. **Edge-to-Edge** - `enableEdgeToEdge()` is active in `MainActivity.kt`. Consume WindowInsets
+2. **Edge-to-Edge & Theme** - `enableEdgeToEdge()` is active in `MainActivity.kt`, and `Theme.kt` includes `resolveAppColorScheme` with HyperOS/AOSP fallback-Monet detection over a full 36-token Light/Dark `Color.kt`. Consume WindowInsets
    with Scaffold's inner padding:
    ```kotlin
    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->

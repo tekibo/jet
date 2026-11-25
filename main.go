@@ -384,18 +384,41 @@ func main() {
 		splashFlag := iconCmd.String("splash", "", "Path to custom splash screen icon (Android 12+)")
 		paddingFlag := iconCmd.Float64("padding", 18.0, "Safe zone padding percentage (default 18%)")
 		projectFlag := iconCmd.String("project", "", "Target Android project directory")
+		iconModFlag := iconCmd.String("module", "", "Target Gradle module (defaults to primary app module)")
+		splashPlateFlag := iconCmd.Bool("splash-plate", false, "Use a circular icon background plate on the native splash screen")
 
-		var cleanArgs []string
-		for _, a := range os.Args[2:] {
-			if a != "--json" && a != "-json" {
-				cleanArgs = append(cleanArgs, a)
+		var flagArgs []string
+		var posArgs []string
+		valueFlags := map[string]bool{
+			"-bg": true, "--bg": true,
+			"-monochrome": true, "--monochrome": true,
+			"-notification": true, "--notification": true,
+			"-splash": true, "--splash": true,
+			"-padding": true, "--padding": true,
+			"-project": true, "--project": true,
+			"-module": true, "--module": true,
+		}
+		args := os.Args[2:]
+		for i := 0; i < len(args); i++ {
+			a := args[i]
+			if a == "--json" || a == "-json" {
+				continue
+			}
+			if strings.HasPrefix(a, "-") {
+				flagArgs = append(flagArgs, a)
+				if !strings.Contains(a, "=") && valueFlags[a] && i+1 < len(args) {
+					i++
+					flagArgs = append(flagArgs, args[i])
+				}
+			} else {
+				posArgs = append(posArgs, a)
 			}
 		}
-		_ = iconCmd.Parse(cleanArgs)
+		_ = iconCmd.Parse(flagArgs)
 
 		var inputPath string
 		targetDir := *projectFlag
-		for _, arg := range iconCmd.Args() {
+		for _, arg := range posArgs {
 			if inputPath == "" {
 				inputPath = arg
 			} else if targetDir == "" {
@@ -422,7 +445,9 @@ func main() {
 			NotificationPath: *notifFlag,
 			SplashPath:       *splashFlag,
 			ProjectDir:       targetDir,
+			Module:           *iconModFlag,
 			PaddingPercent:   *paddingFlag,
+			SplashPlate:      *splashPlateFlag,
 			JSON:             jsonMode,
 		}
 

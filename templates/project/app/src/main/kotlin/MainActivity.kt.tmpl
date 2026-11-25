@@ -1,8 +1,10 @@
 package {{.PackageName}}
 
 import android.os.Bundle
+import android.view.animation.DecelerateInterpolator
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -20,15 +23,41 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.core.view.WindowCompat
 import {{.PackageName}}.ui.theme.AppTheme
 
 class MainActivity : ComponentActivity() {
+    @Volatile
+    private var isUiReady = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        enableEdgeToEdge()
+
+        splashScreen.setKeepOnScreenCondition { !isUiReady }
+        splashScreen.setOnExitAnimationListener { splashScreenView ->
+            try {
+                splashScreenView.iconView.animate()
+                    .scaleX(1.2f)
+                    .scaleY(1.2f)
+                    .setDuration(260L)
+                    .setInterpolator(DecelerateInterpolator())
+                    .start()
+            } catch (_: Throwable) {
+                // Some OEM launchers may omit iconView on non-launcher intents
+            }
+            splashScreenView.view.animate()
+                .alpha(0f)
+                .setDuration(260L)
+                .setInterpolator(DecelerateInterpolator())
+                .withEndAction { splashScreenView.remove() }
+                .start()
+        }
+
         setContent {
+            LaunchedEffect(Unit) {
+                isUiReady = true
+            }
             AppTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     MainScreen(modifier = Modifier.padding(innerPadding))

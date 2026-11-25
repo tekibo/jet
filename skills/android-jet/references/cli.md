@@ -22,7 +22,7 @@ Pass `--json` for machine-readable output on the commands that have it.
 - `jet build [dir] [--release] [--aab] [--module <mod>] [--variant <var>] [--json]` - Debug APK (default), Release APK, or App Bundle across single- or multi-module projects.
 - `jet test [dir] [--json]` - unit tests across all modules; JSON includes `failures` and pre-test Gradle `diagnostics` + `raw_output` on build failures.
 - `jet clean [dir] [--all] [--json]` - clean build caches across modules, stop daemons, and clear locks.
-- `jet icon [file] [--bg <hex>] [--json]` - generate the full icon suite (adaptive, monochrome, splash, notification).
+- `jet icon [file] [--bg <hex>] [--module <mod>] [--splash-plate] [--json]` - generate the full icon suite (adaptive, monochrome, splash, notification) and sync `themes.xml` + `AndroidManifest.xml`.
 - `jet rename-pkg [dir] [--to <new.pkg>]` - rename the package across files and manifests.
 - `jet keystore [dir] [--debug] [--password <pw>] [--alias <a>] [--name <file>] [--force] [--json]` - generate a debug keystore (`--debug`) or release keystore & signing config non-interactively.
 - `jet devices` - list connected hardware devices and running emulators.

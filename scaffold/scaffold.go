@@ -148,11 +148,12 @@ func Execute(templateFS fs.FS, cfg Config) error {
 			destRel = ".gitignore"
 		}
 
-		// Map Kotlin source files to their full package directory
-		if rel == "app/src/main/kotlin/MainActivity.kt.tmpl" {
-			destRel = filepath.Join("app/src/main/kotlin", cfg.PackagePath, "MainActivity.kt")
-		} else if rel == "app/src/main/kotlin/ui/theme/Theme.kt.tmpl" {
-			destRel = filepath.Join("app/src/main/kotlin", cfg.PackagePath, "ui/theme", "Theme.kt")
+		// Map Kotlin source files under app/src/main/kotlin/ to the app's package directory
+		slashRel := filepath.ToSlash(rel)
+		if strings.HasPrefix(slashRel, "app/src/main/kotlin/") {
+			sub := strings.TrimPrefix(slashRel, "app/src/main/kotlin/")
+			sub = strings.TrimSuffix(sub, ".tmpl")
+			destRel = filepath.Join("app/src/main/kotlin", cfg.PackagePath, filepath.FromSlash(sub))
 		}
 
 		destPath := filepath.Join(cfg.TargetDir, destRel)

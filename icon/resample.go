@@ -114,6 +114,113 @@ func FitSafeZone(src image.Image, canvasW, canvasH int, safeScale float64) *imag
 	return canvas
 }
 
+// HasOpaqueCorners reports whether all four corners of src are nearly opaque,
+// indicating a full-bleed square icon rather than a transparent cutout.
+func HasOpaqueCorners(src image.Image) bool {
+	b := src.Bounds()
+	if b.Dx() < 1 || b.Dy() < 1 {
+		return false
+	}
+	pts := [4]image.Point{
+		{b.Min.X, b.Min.Y},
+		{b.Max.X - 1, b.Min.Y},
+		{b.Min.X, b.Max.Y - 1},
+		{b.Max.X - 1, b.Max.Y - 1},
+	}
+	for _, p := range pts {
+		_, _, _, a := src.At(p.X, p.Y).RGBA()
+		if (a >> 8) < 245 {
+			return false
+		}
+	}
+	return true
+}
+
+// CreateSplashIcon builds a splash drawable bitmap centered inside Android 12–16's
+// circular safe zone, rounding or circularly masking opaque square inputs so corners
+// are never roughly clipped by the system splash mask.
+func CreateSplashIcon(src image.Image, canvasSize int, usePlate bool) *image.RGBA {
+	opaqueCorners := HasOpaqueCorners(src)
+	safeScale := 0.50
+	if usePlate {
+		safeScale = 0.54
+	} else if opaqueCorners {
+		// 0.52 rounded square (0.22 corner radius) has diagonal ~0.64 < 0.667 (192/288)
+		safeScale = 0.52
+	}
+
+	if !opaqueCorners {
+		return FitSafeZone(src, canvasSize, canvasSize, safeScale)
+	}
+
+	innerSize := int(math.Round(float64(canvasSize) * safeScale))
+	if innerSize < 16 {
+		innerSize = 16
+	}
+	resized := Resize(src, innerSize, innerSize)
+	var masked *image.RGBA
+	if usePlate {
+		masked = applyCircularMask(resized)
+	} else {
+		masked = applyRoundedRectMask(resized, 0.22)
+	}
+
+	canvas := image.NewRGBA(image.Rect(0, 0, canvasSize, canvasSize))
+	offset := (canvasSize - innerSize) / 2
+	draw.Draw(canvas, image.Rect(offset, offset, offset+innerSize, offset+innerSize), masked, image.Point{}, draw.Over)
+	return canvas
+}
+
+func applyRoundedRectMask(src image.Image, radiusFraction float64) *image.RGBA {
+	bounds := src.Bounds()
+	w := bounds.Dx()
+	h := bounds.Dy()
+	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	if w <= 0 || h <= 0 {
+		return dst
+	}
+
+	halfW := float64(w) / 2.0
+	halfH := float64(h) / 2.0
+	r := math.Min(float64(w), float64(h)) * radiusFraction
+	bx := halfW - r
+	by := halfH - r
+
+	for y := 0; y < h; y++ {
+		py := math.Abs(float64(y)+0.5-halfH) - by
+		for x := 0; x < w; x++ {
+			px := math.Abs(float64(x)+0.5-halfW) - bx
+			ox := math.Max(px, 0)
+			oy := math.Max(py, 0)
+			dist := math.Sqrt(ox*ox+oy*oy) + math.Min(math.Max(px, py), 0) - r
+
+			var cov float64
+			switch {
+			case dist <= -0.75:
+				cov = 1.0
+			case dist >= 0.75:
+				cov = 0.0
+			default:
+				cov = (0.75 - dist) / 1.5
+			}
+
+			if cov <= 0 {
+				dst.SetRGBA(x, y, color.RGBA{0, 0, 0, 0})
+				continue
+			}
+
+			c := toRGBAFloat(src.At(bounds.Min.X+x, bounds.Min.Y+y))
+			dst.SetRGBA(x, y, color.RGBA{
+				R: uint8(math.Round(clamp(c.r, 0, 255))),
+				G: uint8(math.Round(clamp(c.g, 0, 255))),
+				B: uint8(math.Round(clamp(c.b, 0, 255))),
+				A: uint8(math.Round(clamp(c.a*cov, 0, 255))),
+			})
+		}
+	}
+	return dst
+}
+
 // CreateSolidCanvas creates an RGBA image filled with a given color.
 func CreateSolidCanvas(width, height int, col color.Color) *image.RGBA {
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))

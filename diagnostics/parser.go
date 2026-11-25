@@ -536,6 +536,8 @@ func atoiOrZero(s string) int {
 func inferSuggestion(msg string) string {
 	lower := strings.ToLower(msg)
 	switch {
+	case strings.Contains(lower, "outofmemoryerror") || strings.Contains(lower, "java heap space"):
+		return "Increase org.gradle.jvmargs (e.g. -Xmx2048m or -Xmx4g) in gradle.properties"
 	case strings.Contains(lower, "install_failed_update_incompatible"):
 		return "Existing app on device uses a different signing key. Re-run with 'jet run --reinstall' or uninstall the old package first"
 	case strings.Contains(lower, "install_failed_user_restricted"):
