@@ -7,7 +7,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -23,7 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import {{.PackageName}}.ui.theme.AppTheme
+import {{.PackageName}}.core.ui.AppMetaPill
+import {{.PackageName}}.core.ui.AppSurfaceCard
+import {{.PackageName}}.core.ui.AppTheme
 
 class MainActivity : ComponentActivity() {
     @Volatile
@@ -78,17 +82,22 @@ fun MainScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "{{.AppName}}",
-            style = MaterialTheme.typography.headlineLarge
-        )
-        Text(
-            text = "Jetpack Compose + Material 3",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
-        )
-        Button(onClick = { count++ }) {
-            Text("Clicked $count times")
+        AppSurfaceCard {
+            AppMetaPill(text = "Material 3 Expressive", highlighted = true)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "{{.AppName}}",
+                style = MaterialTheme.typography.headlineLarge
+            )
+            Text(
+                text = "Jetpack Compose + :core-ui",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp, bottom = 18.dp)
+            )
+            Button(onClick = { count++ }) {
+                Text("Clicked $count times")
+            }
         }
     }
 }

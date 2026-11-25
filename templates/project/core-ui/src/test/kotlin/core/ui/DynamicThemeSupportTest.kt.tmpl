@@ -1,0 +1,29 @@
+package {{.PackageName}}.core.ui
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DynamicThemeSupportTest {
+    @Test
+    fun `detects HyperOS preset fallback as false positive`() {
+        val overlay = """
+            {
+              "android.theme.customization.system_palette":"#165C7D",
+              "android.theme.customization.color_source":"preset"
+            }
+        """.trimIndent()
+        assertTrue(isFallbackMonetConfiguration(overlay, 0xFF00658B.toInt()))
+    }
+
+    @Test
+    fun `preserves genuine wallpaper dynamic colors`() {
+        val overlay = """
+            {
+              "android.theme.customization.system_palette":"#165C7D",
+              "android.theme.customization.color_source":"home_wallpaper"
+            }
+        """.trimIndent()
+        assertFalse(isFallbackMonetConfiguration(overlay, 0xFF00668B.toInt()))
+    }
+}

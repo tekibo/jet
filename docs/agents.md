@@ -23,7 +23,7 @@ From an app's checkout (a git root):
 
 ```sh
 jet doctor        # the environment: JDK, SDK, tools, licenses. Prints the next step.
-jet init MyApp    # scaffold
+jet init MyApp    # scaffold (:app + :core-ui theme & safe sheet/input primitives)
 jet build --json  # compile (debug by default); full structured diagnostics + failed_tasks + raw_output_tail
 jet test --json   # multi-module unit tests; failure locations & build diagnostics as JSON
 jet run           # build, install, detect launcher activity, launch, stream logcat (or --json)

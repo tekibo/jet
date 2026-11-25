@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"jet/scaffold"
 )
 
 type RenameOptions struct {
@@ -100,14 +102,24 @@ func RunRename(opts RenameOptions) error {
 	oldPath := strings.ReplaceAll(opts.OldPackage, ".", "/")
 	newPath := strings.ReplaceAll(opts.NewPackage, ".", "/")
 
-	// 3. Move source directories
-	srcRoots := []string{
-		filepath.Join(opts.TargetDir, "app", "src", "main", "kotlin"),
-		filepath.Join(opts.TargetDir, "app", "src", "main", "java"),
-		filepath.Join(opts.TargetDir, "app", "src", "test", "kotlin"),
-		filepath.Join(opts.TargetDir, "app", "src", "test", "java"),
-		filepath.Join(opts.TargetDir, "app", "src", "androidTest", "kotlin"),
-		filepath.Join(opts.TargetDir, "app", "src", "androidTest", "java"),
+	// 3. Move source directories across all Gradle modules
+	var moduleDirs []string
+	seenMods := make(map[string]bool)
+	for _, m := range append([]string{filepath.Join(opts.TargetDir, "app")}, scaffold.FindModuleDirs(opts.TargetDir)...) {
+		clean := filepath.Clean(m)
+		if !seenMods[clean] {
+			seenMods[clean] = true
+			moduleDirs = append(moduleDirs, clean)
+		}
+	}
+
+	var srcRoots []string
+	for _, modDir := range moduleDirs {
+		for _, sourceSet := range []string{"main", "test", "androidTest"} {
+			for _, lang := range []string{"kotlin", "java"} {
+				srcRoots = append(srcRoots, filepath.Join(modDir, "src", sourceSet, lang))
+			}
+		}
 	}
 
 	movedFiles := 0
@@ -211,12 +223,27 @@ func moveFile(src, dst string) error {
 }
 
 func cleanEmptyDirs(base, subPath string) {
+	oldDir := filepath.Join(base, filepath.FromSlash(subPath))
+	var subDirs []string
+	_ = filepath.WalkDir(oldDir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			subDirs = append(subDirs, p)
+		}
+		return nil
+	})
+	for i := len(subDirs) - 1; i >= 0; i-- {
+		entries, err := os.ReadDir(subDirs[i])
+		if err == nil && len(entries) == 0 {
+			_ = os.Remove(subDirs[i])
+		}
+	}
+
 	parts := strings.Split(subPath, "/")
-	for i := len(parts); i > 0; i-- {
+	for i := len(parts) - 1; i > 0; i-- {
 		dir := filepath.Join(base, filepath.Join(parts[:i]...))
 		entries, err := os.ReadDir(dir)
 		if err == nil && len(entries) == 0 {
-			os.Remove(dir)
+			_ = os.Remove(dir)
 		}
 	}
 }

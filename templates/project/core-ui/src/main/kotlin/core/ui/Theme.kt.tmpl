@@ -1,4 +1,4 @@
-package {{.PackageName}}.ui.theme
+package {{.PackageName}}.core.ui
 
 import android.content.Context
 import android.os.Build
@@ -202,6 +202,7 @@ fun AppTheme(
     MaterialExpressiveTheme(
         colorScheme = colorScheme,
         typography = AppTypography,
+        shapes = AppShapes,
         motionScheme = MotionScheme.expressive(),
         content = content
     )

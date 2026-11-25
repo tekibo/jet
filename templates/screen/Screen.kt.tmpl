@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -11,12 +12,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+{{- if .HasCoreUI }}
+import {{.PackageName}}.core.ui.AppSurfaceCard
+import {{.PackageName}}.core.ui.AppTopBar
+{{- end }}
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun {{.ScreenName}}(
     modifier: Modifier = Modifier
 ) {
     Scaffold(
+{{- if .HasCoreUI }}
+        topBar = { AppTopBar(title = "{{.ScreenName}}") },
+{{- end }}
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
         Column(
@@ -27,10 +36,19 @@ fun {{.ScreenName}}(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+{{- if .HasCoreUI }}
+            AppSurfaceCard {
+                Text(
+                    text = "{{.ScreenName}}",
+                    style = MaterialTheme.typography.headlineMedium
+                )
+            }
+{{- else }}
             Text(
                 text = "{{.ScreenName}}",
                 style = MaterialTheme.typography.headlineMedium
             )
+{{- end }}
         }
     }
 }

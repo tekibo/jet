@@ -1,0 +1,204 @@
+package {{.PackageName}}.core.ui
+
+import android.content.Context
+import android.view.View
+import android.view.inputmethod.InputMethodManager
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.SoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+
+fun dismissSheetKeyboard(
+    view: View,
+    keyboardController: SoftwareKeyboardController?,
+    focusManager: FocusManager
+) {
+    focusManager.clearFocus(force = true)
+    keyboardController?.hide()
+    val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+    imm?.hideSoftInputFromWindow(view.windowToken, 0)
+    view.clearFocus()
+}
+
+fun Modifier.dismissKeyboardOnEnter(
+    view: View,
+    keyboardController: SoftwareKeyboardController?,
+    focusManager: FocusManager
+): Modifier = onPreviewKeyEvent { event ->
+    if (event.type == KeyEventType.KeyDown &&
+        (event.key == Key.Enter || event.key == Key.NumPadEnter)
+    ) {
+        dismissSheetKeyboard(view, keyboardController, focusManager)
+        true
+    } else {
+        false
+    }
+}
+
+/**
+ * Reusable Material 3 ModalBottomSheet with safe two-step Back handling for form sheets:
+ * first Back dismisses the IME/field focus without losing draft input; second Back closes the sheet.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun AppModalSheet(
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    isInputFocused: Boolean = false,
+    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val activityBackOwner = LocalOnBackPressedDispatcherOwner.current
+
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        modifier = modifier
+    ) {
+        val sheetView = LocalView.current
+        val isImeVisible = WindowInsets.isImeVisible
+
+        var wasImeVisible by remember { mutableStateOf(false) }
+        LaunchedEffect(isImeVisible) {
+            if (wasImeVisible && !isImeVisible && isInputFocused) {
+                focusManager.clearFocus(force = true)
+                sheetView.clearFocus()
+            }
+            wasImeVisible = isImeVisible
+        }
+
+        val latestFocused by rememberUpdatedState(isInputFocused)
+        val latestImeVisible by rememberUpdatedState(isImeVisible)
+        val latestOnDismiss by rememberUpdatedState(onDismissRequest)
+
+        DisposableEffect(sheetView, activityBackOwner) {
+            val backDispatcher = sheetView.findViewTreeOnBackPressedDispatcherOwner()?.onBackPressedDispatcher
+                ?: activityBackOwner?.onBackPressedDispatcher
+            val callback = object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (latestFocused || latestImeVisible) {
+                        dismissSheetKeyboard(sheetView, keyboardController, focusManager)
+                    } else {
+                        scope.launch { sheetState.hide() }.invokeOnCompletion {
+                            latestOnDismiss()
+                        }
+                    }
+                }
+            }
+            backDispatcher?.addCallback(callback)
+            onDispose { callback.remove() }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            content = content
+        )
+    }
+}
+
+/**
+ * Reusable single-line or multi-line input field styled with AppShapes and wired to
+ * dismiss the keyboard cleanly on both IME Done and hardware Enter presses.
+ */
+@Composable
+fun AppTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    supportingText: String? = null,
+    isError: Boolean = false,
+    singleLine: Boolean = true,
+    monospace: Boolean = false,
+    imeAction: ImeAction = ImeAction.Done,
+    onFocusChanged: (Boolean) -> Unit = {},
+    onDone: (() -> Unit)? = null
+) {
+    val view = LocalView.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val handleDone = {
+        dismissSheetKeyboard(view, keyboardController, focusManager)
+        onDone?.invoke()
+    }
+
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { androidx.compose.material3.Text(label) },
+        placeholder = placeholder?.let { { androidx.compose.material3.Text(it) } },
+        supportingText = supportingText?.let { { androidx.compose.material3.Text(it) } },
+        isError = isError,
+        singleLine = singleLine,
+        textStyle = if (monospace) MonoCodeStyle else TextStyle.Default,
+        shape = MaterialTheme.shapes.small,
+        keyboardOptions = KeyboardOptions(imeAction = imeAction),
+        keyboardActions = KeyboardActions(
+            onDone = { handleDone() }
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { onFocusChanged(it.isFocused) }
+            .let { mod ->
+                if (singleLine && imeAction == ImeAction.Done) {
+                    mod.dismissKeyboardOnEnter(view, keyboardController, focusManager)
+                } else {
+                    mod
+                }
+            }
+    )
+}

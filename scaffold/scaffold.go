@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+var moduleSourcePrefixRegex = regexp.MustCompile(`^(.+?/src/[^/]+/(?:kotlin|java))/(.+)$`)
+
 type Config struct {
 	AppName           string
 	PackageName       string
@@ -148,12 +150,11 @@ func Execute(templateFS fs.FS, cfg Config) error {
 			destRel = ".gitignore"
 		}
 
-		// Map Kotlin source files under app/src/main/kotlin/ to the app's package directory
+		// Map Kotlin/Java source files under <module>/src/<sourceSet>/(kotlin|java)/ to the package directory
 		slashRel := filepath.ToSlash(rel)
-		if strings.HasPrefix(slashRel, "app/src/main/kotlin/") {
-			sub := strings.TrimPrefix(slashRel, "app/src/main/kotlin/")
-			sub = strings.TrimSuffix(sub, ".tmpl")
-			destRel = filepath.Join("app/src/main/kotlin", cfg.PackagePath, filepath.FromSlash(sub))
+		if m := moduleSourcePrefixRegex.FindStringSubmatch(slashRel); len(m) == 3 {
+			sub := strings.TrimSuffix(m[2], ".tmpl")
+			destRel = filepath.Join(filepath.FromSlash(m[1]), cfg.PackagePath, filepath.FromSlash(sub))
 		}
 
 		destPath := filepath.Join(cfg.TargetDir, destRel)
@@ -273,13 +274,18 @@ func AddScreen(templateFS fs.FS, targetDir, screenName, pkgName string) error {
 		return err
 	}
 
+	coreUIInfo, err := os.Stat(filepath.Join(targetDir, "core-ui"))
+	hasCoreUI := err == nil && coreUIInfo.IsDir()
+
 	var buf bytes.Buffer
 	data := struct {
 		PackageName string
 		ScreenName  string
+		HasCoreUI   bool
 	}{
 		PackageName: pkgName,
 		ScreenName:  screenName,
+		HasCoreUI:   hasCoreUI,
 	}
 
 	if err := tmpl.Execute(&buf, data); err != nil {

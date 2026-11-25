@@ -17,7 +17,7 @@ jet doctor --json
 
 ## Project Overview
 - **Language**: Kotlin 2.x
-- **Build System**: Gradle Kotlin DSL with Version Catalog (`gradle/libs.versions.toml`)
+- **Build System**: Gradle Kotlin DSL with Version Catalog (`gradle/libs.versions.toml`) across `:app` and `:core-ui`
 - **UI Framework**: Jetpack Compose
 - **SDK Targets**: Min SDK {{.MinSdk}} | Target SDK {{.TargetSdk}} | Compile SDK {{.CompileSdk}}
 - **Package**: `{{.PackageName}}`
@@ -49,12 +49,13 @@ Fallback Gradle commands: `./gradlew assembleDebug`, `./gradlew test`
   - Expose UI state from ViewModels using `StateFlow`.
   - Handle side-effects with `LaunchedEffect` or `rememberCoroutineScope`.
   - Avoid mutating state inside Composable bodies.
+- **Theme & UI Primitives**: Import `AppTheme`, `AppModalSheet`, `AppTextField`, `AppSurfaceCard`, `AppMetaPill`, `AppSectionHeader`, `AppEmptyState`, and `AppTopBar` from `{{.PackageName}}.core.ui` (`:core-ui` module) instead of hardcoding `ModalBottomSheet` dismiss logic or ad-hoc color tokens.
 - **Dependencies**:
   - Add libraries via `jet add <preset>` or edit `gradle/libs.versions.toml`. Do not hardcode versions in `build.gradle.kts`.
 
 ## Directory Layout
-- **Source Code**: `app/src/main/kotlin/{{.PackagePath}}/`
-- **Theme**: `app/src/main/kotlin/{{.PackagePath}}/ui/theme/`
+- **App Source Code (`:app`)**: `app/src/main/kotlin/{{.PackagePath}}/`
+- **Shared Theme & Primitives (`:core-ui`)**: `core-ui/src/main/kotlin/{{.PackagePath}}/core/ui/`
 - **Manifest**: `app/src/main/AndroidManifest.xml`
 - **Skill**: `.agents/skills/android-jet/SKILL.md`
 - **Dependencies**: `gradle/libs.versions.toml`

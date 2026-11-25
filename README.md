@@ -67,7 +67,7 @@ jet doctor
 
 | Command | Description | Example |
 | :--- | :--- | :--- |
-| `jet init` | Scaffold a new Compose project | `jet init my-app` |
+| `jet init` | Scaffold a modular Compose project (`:app` + `:core-ui`) | `jet init my-app` |
 | `jet doctor` | Audit Android SDK, JDK, tools, and licenses | `jet doctor` |
 | `jet run` | Build, install, launch activity, and stream logcat | `jet run my-app` |
 | `jet build` | Build Debug APK (default), Release APK, or App Bundle | `jet build my-app --json` |
@@ -143,10 +143,12 @@ jet test my-app --json
 jet build my-app --json
 ```
 
-### 5. Code Scaffolding (`jet add-screen` & `jet add-viewmodel`)
+### 5. Code Scaffolding & `:core-ui` (`jet add-screen` & `jet add-viewmodel`)
+
+New projects include `:app` and `:core-ui` (`<pkg>.core.ui`, containing `AppTheme`, safe fallback Monet detection, `AppModalSheet`, `AppTextField`, and layout primitives):
 
 ```bash
-# Creates app/src/main/kotlin/<pkg>/ui/screens/HomeScreen.kt
+# Creates app/src/main/kotlin/<pkg>/ui/screens/HomeScreen.kt (wired to :core-ui when present)
 jet add-screen HomeScreen my-app
 
 # Creates app/src/main/kotlin/<pkg>/ui/viewmodels/HomeViewModel.kt

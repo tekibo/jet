@@ -533,7 +533,7 @@ func main() {
 func printUsage() {
 	fmt.Println(banner)
 	fmt.Println("Usage:")
-	fmt.Println("  jet init [TARGET_DIR]          Interactively scaffold a new Compose project")
+	fmt.Println("  jet init [TARGET_DIR]          Scaffold a modular Compose project (:app + :core-ui)")
 	fmt.Println("  jet doctor                     Diagnose your local Android SDK & Java environment")
 	fmt.Println("  jet devices                    List connected physical devices & running emulators")
 	fmt.Println("  jet emu [start <name>]         List or launch Android Virtual Devices (AVDs)")
