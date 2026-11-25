@@ -536,6 +536,10 @@ func atoiOrZero(s string) int {
 func inferSuggestion(msg string) string {
 	lower := strings.ToLower(msg)
 	switch {
+	case strings.Contains(lower, "install_failed_update_incompatible"):
+		return "Existing app on device uses a different signing key. Re-run with 'jet run --reinstall' or uninstall the old package first"
+	case strings.Contains(lower, "install_failed_user_restricted"):
+		return "Enable 'Install via USB' in device Developer Options and retry"
 	case strings.Contains(lower, "debug.keystore") && strings.Contains(lower, "not found"):
 		return "Run 'jet keystore --debug' to generate debug.keystore, or check debug signingConfig in app/build.gradle(.kts)"
 	case strings.Contains(lower, "keystore") && (strings.Contains(lower, "not found") || strings.Contains(lower, "password") || strings.Contains(lower, "signing")):

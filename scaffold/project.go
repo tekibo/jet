@@ -204,14 +204,39 @@ func containsTestXML(dir string) bool {
 	return false
 }
 
+// DetectPrimaryAppModule returns the primary Android application Gradle module
+// path (e.g. ":app"), preferring ":app" over auxiliary application modules like
+// embedded templates. Returns "" if none can be identified.
+func DetectPrimaryAppModule(rootDir string) string {
+	if rootDir == "" {
+		rootDir = "."
+	}
+	appDirs := findApplicationModuleDirs(rootDir)
+	for _, d := range appDirs {
+		rel, err := filepath.Rel(rootDir, d)
+		if err != nil || rel == "." {
+			continue
+		}
+		return ":" + strings.ReplaceAll(filepath.ToSlash(rel), "/", ":")
+	}
+	return ""
+}
+
 // DetectAppLaunchTarget finds the Android applicationId and launcher activity component
 // (e.g. "com.example.app", ".MainActivity") across merged or source manifests and build scripts.
-func DetectAppLaunchTarget(rootDir string) (string, string, error) {
+func DetectAppLaunchTarget(rootDir string, moduleFilter ...string) (string, string, error) {
 	if rootDir == "" {
 		rootDir = "."
 	}
 
-	appDirs := findApplicationModuleDirs(rootDir)
+	var appDirs []string
+	if len(moduleFilter) > 0 && strings.TrimSpace(moduleFilter[0]) != "" {
+		mod := strings.TrimPrefix(strings.TrimSpace(moduleFilter[0]), ":")
+		mod = strings.ReplaceAll(mod, ":", string(filepath.Separator))
+		appDirs = []string{filepath.Join(rootDir, mod)}
+	} else {
+		appDirs = findApplicationModuleDirs(rootDir)
+	}
 
 	// 1. Try merged manifests first (exact applicationId + merged launcher activity)
 	for _, modDir := range appDirs {
@@ -257,12 +282,13 @@ func DetectAppLaunchTarget(rootDir string) (string, string, error) {
 }
 
 func findApplicationModuleDirs(rootDir string) []string {
+	var primaryApp []string
 	var appDirs []string
 	var otherDirs []string
 
 	candidates := FindModuleDirs(rootDir)
 	for _, d := range candidates {
-		isApp := filepath.Base(d) == "app"
+		isApp := false
 		for _, f := range []string{"build.gradle.kts", "build.gradle"} {
 			if data, err := os.ReadFile(filepath.Join(d, f)); err == nil {
 				s := string(data)
@@ -272,14 +298,17 @@ func findApplicationModuleDirs(rootDir string) []string {
 				}
 			}
 		}
-		if isApp {
+		if filepath.Base(d) == "app" {
+			primaryApp = append(primaryApp, d)
+		} else if isApp {
 			appDirs = append(appDirs, d)
 		} else {
 			otherDirs = append(otherDirs, d)
 		}
 	}
 
-	return append(appDirs, otherDirs...)
+	out := append(primaryApp, appDirs...)
+	return append(out, otherDirs...)
 }
 
 func detectPackageFromGradle(modDir string) string {

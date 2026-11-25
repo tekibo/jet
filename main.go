@@ -150,7 +150,9 @@ func main() {
 	case "run":
 		runCmd := flag.NewFlagSet("run", flag.ExitOnError)
 		deviceFlag := runCmd.String("device", "", "Explicit Android device/emulator serial ID")
+		moduleFlag := runCmd.String("module", "", "Target Gradle application module (e.g. :app)")
 		noLogsFlag := runCmd.Bool("no-logs", false, "Do not stream logcat output after launch")
+		reinstallFlag := runCmd.Bool("reinstall", false, "Uninstall and reinstall if existing app has a different signing key")
 		runJSONFlag := runCmd.Bool("json", false, "Output machine-readable JSON diagnostics")
 
 		var targetDir string
@@ -172,7 +174,15 @@ func main() {
 			}
 		}
 
-		exitOnError("Run error", device.RunApp(targetDir, *deviceFlag, !*noLogsFlag, *runJSONFlag || jsonMode, embeddedTemplates))
+		exitOnError("Run error", device.RunApp(device.RunOptions{
+			TargetDir:  targetDir,
+			Device:     *deviceFlag,
+			Module:     *moduleFlag,
+			StreamLogs: !*noLogsFlag,
+			Reinstall:  *reinstallFlag,
+			JSON:       *runJSONFlag || jsonMode,
+			Templates:  embeddedTemplates,
+		}))
 
 	case "build":
 		buildCmd := flag.NewFlagSet("build", flag.ExitOnError)

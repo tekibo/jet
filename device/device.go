@@ -250,14 +250,25 @@ func StartEmulator(avdName string, headless bool) error {
 	return nil
 }
 
-func RunApp(targetDir string, explicitDevice string, streamLogs bool, jsonMode bool, templatesFS fs.FS) error {
+type RunOptions struct {
+	TargetDir  string
+	Device     string
+	Module     string
+	StreamLogs bool
+	Reinstall  bool
+	JSON       bool
+	Templates  fs.FS
+}
+
+func RunApp(opts RunOptions) error {
+	targetDir := opts.TargetDir
 	if targetDir == "" {
 		targetDir = "."
 	}
 	start := time.Now()
 
 	failJSON := func(err error, parsed *diagnostics.GradleParseResult) error {
-		if jsonMode {
+		if opts.JSON {
 			env := diagnostics.OutputEnvelope{
 				Success:    false,
 				Command:    "run",
@@ -284,49 +295,74 @@ func RunApp(targetDir string, explicitDevice string, streamLogs bool, jsonMode b
 		return failJSON(err, nil)
 	}
 
-	var targetDevice DeviceInfo
+	var readyDevices []DeviceInfo
+	for _, d := range devices {
+		if d.Status == "device" {
+			readyDevices = append(readyDevices, d)
+		}
+	}
+
 	if len(devices) == 0 {
 		return failJSON(fmt.Errorf("no Android devices or emulators connected. Plug in a device or run 'jet emu'"), nil)
 	}
 
-	if explicitDevice != "" {
+	var targetDevice DeviceInfo
+	if opts.Device != "" {
 		found := false
 		for _, d := range devices {
-			if d.Serial == explicitDevice {
+			if d.Serial == opts.Device {
 				targetDevice = d
 				found = true
 				break
 			}
 		}
 		if !found {
-			return failJSON(fmt.Errorf("device '%s' not found among connected devices", explicitDevice), nil)
+			return failJSON(fmt.Errorf("device '%s' not found among connected devices", opts.Device), nil)
 		}
+		if targetDevice.Status != "device" {
+			return failJSON(fmt.Errorf("device '%s' is %s (not ready)", targetDevice.Serial, targetDevice.Status), nil)
+		}
+	} else if len(readyDevices) > 0 {
+		targetDevice = readyDevices[0]
 	} else {
-		targetDevice = devices[0]
+		return failJSON(fmt.Errorf("connected device '%s' has status '%s' (authorize USB debugging or wait for boot)", devices[0].Serial, devices[0].Status), nil)
 	}
 
-	if !jsonMode {
+	if !opts.JSON {
 		fmt.Printf("[i] Target device: %s (%s, %s)\n", targetDevice.Serial, targetDevice.Model, targetDevice.Type)
 	}
 
 	// 2. Ensure Gradle wrapper and debug keystore
-	if err := scaffold.EnsureGradleWrapper(templatesFS, targetDir, jsonMode); err != nil {
+	if err := scaffold.EnsureGradleWrapper(opts.Templates, targetDir, opts.JSON); err != nil {
 		return failJSON(err, nil)
 	}
-	if _, err := signing.EnsureDebugKeystore(targetDir, jsonMode); err != nil {
+	if _, err := signing.EnsureDebugKeystore(targetDir, opts.JSON); err != nil {
 		return failJSON(err, nil)
 	}
 
-	// 3. Build & Install via Gradle Wrapper
-	if !jsonMode {
-		fmt.Println("[i] Building & installing debug APK...")
+	// 3. Build ONLY the target application module APK, then install directly via adb.
+	//    Avoids Gradle installing auxiliary application modules (e.g. template APKs)
+	//    and avoids AGP ddmlib parallel device contention.
+	module := strings.TrimSpace(opts.Module)
+	if module == "" {
+		module = scaffold.DetectPrimaryAppModule(targetDir)
+	} else if !strings.HasPrefix(module, ":") {
+		module = ":" + module
 	}
-	cmd := exec.Command("./gradlew", "installDebug", "--console=plain")
+
+	assembleTask := "assembleDebug"
+	if module != "" {
+		assembleTask = module + ":assembleDebug"
+	}
+
+	if !opts.JSON {
+		fmt.Printf("[i] Building debug APK via '%s'...\n", assembleTask)
+	}
+	cmd := exec.Command("./gradlew", assembleTask, "--console=plain")
 	cmd.Dir = targetDir
-	cmd.Env = append(os.Environ(), fmt.Sprintf("ANDROID_SERIAL=%s", targetDevice.Serial))
 
 	var outBuf bytes.Buffer
-	if jsonMode {
+	if opts.JSON {
 		cmd.Stdout = &outBuf
 		cmd.Stderr = &outBuf
 	} else {
@@ -335,26 +371,82 @@ func RunApp(targetDir string, explicitDevice string, streamLogs bool, jsonMode b
 	}
 
 	if err := cmd.Run(); err != nil {
-		if jsonMode {
+		if opts.JSON {
 			parsed := diagnostics.ParseGradleResult(outBuf.String())
-			return failJSON(fmt.Errorf("installation failed: %w", err), &parsed)
+			return failJSON(fmt.Errorf("build failed: %w", err), &parsed)
 		}
-		return fmt.Errorf("installation failed: %w", err)
+		return fmt.Errorf("build failed: %w", err)
 	}
 
-	// 4. Detect package & launcher activity (using merged manifest after installDebug)
-	pkg, activity, err := scaffold.DetectAppLaunchTarget(targetDir)
+	// 4. Locate built APK and detect package + launcher activity
+	artifacts := scaffold.FindBuildArtifacts(targetDir, false, false, module)
+	if len(artifacts) == 0 {
+		return failJSON(fmt.Errorf("build succeeded but no debug APK was found for module '%s'", module), nil)
+	}
+	apkPath := artifacts[0]
+
+	pkg, activity, err := scaffold.DetectAppLaunchTarget(targetDir, module)
 	if err != nil {
 		return failJSON(err, nil)
 	}
 
-	component := fmt.Sprintf("%s/%s", pkg, activity)
 	adb, err := FindAdb()
 	if err != nil {
 		return failJSON(err, nil)
 	}
 
-	if !jsonMode {
+	if !opts.JSON {
+		relAPK, relErr := filepath.Rel(targetDir, apkPath)
+		if relErr != nil {
+			relAPK = apkPath
+		}
+		fmt.Printf("[i] Installing %s onto %s...\n", relAPK, targetDevice.Serial)
+	}
+
+	installCmd := exec.Command(adb, "-s", targetDevice.Serial, "install", "-r", apkPath)
+	installOut, installErr := installCmd.CombinedOutput()
+	installStr := strings.TrimSpace(string(installOut))
+
+	if installErr != nil && strings.Contains(installStr, "INSTALL_FAILED_UPDATE_INCOMPATIBLE") && opts.Reinstall {
+		if !opts.JSON {
+			fmt.Printf("[i] Signature mismatch detected for %s; uninstalling previous build and reinstalling...\n", pkg)
+		}
+		_, _ = exec.Command(adb, "-s", targetDevice.Serial, "uninstall", pkg).CombinedOutput()
+		installCmd = exec.Command(adb, "-s", targetDevice.Serial, "install", apkPath)
+		installOut, installErr = installCmd.CombinedOutput()
+		installStr = strings.TrimSpace(string(installOut))
+	}
+
+	if installErr != nil {
+		parsed := diagnostics.ParseGradleResult(installStr)
+		msg := fmt.Sprintf("adb install failed: %s", installStr)
+		if strings.Contains(installStr, "INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
+			msg = fmt.Sprintf("installation failed: existing %s on device has a different signing key (re-run with 'jet run --reinstall')", pkg)
+			parsed.Diagnostics = append(parsed.Diagnostics, diagnostics.Diagnostic{
+				Severity:   "error",
+				Kind:       "signing",
+				Message:    installStr,
+				Suggestion: "Run 'jet run --reinstall' (or 'adb uninstall " + pkg + "') to replace the previous debug install",
+			})
+		} else if strings.Contains(installStr, "INSTALL_FAILED_USER_RESTRICTED") {
+			parsed.Diagnostics = append(parsed.Diagnostics, diagnostics.Diagnostic{
+				Severity:   "error",
+				Kind:       "device",
+				Message:    installStr,
+				Suggestion: "Enable 'Install via USB' in Developer Options on your device and accept the prompt",
+			})
+		}
+		if opts.JSON {
+			parsed.SummaryError = msg
+			parsed.RawOutputTail = installStr
+			return failJSON(fmt.Errorf("%s", msg), &parsed)
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	// 5. Launch Main Activity via adb shell am start
+	component := fmt.Sprintf("%s/%s", pkg, activity)
+	if !opts.JSON {
 		fmt.Printf("[i] Launching %s on device...\n", component)
 	}
 	launchCmd := exec.Command(adb, "-s", targetDevice.Serial, "shell", "am", "start", "-n", component)
@@ -363,13 +455,19 @@ func RunApp(targetDir string, explicitDevice string, streamLogs bool, jsonMode b
 		return failJSON(fmt.Errorf("failed to launch activity %s: %s (%w)", component, strings.TrimSpace(string(lOut)), err), nil)
 	}
 
-	if jsonMode {
+	if opts.JSON {
+		relAPK, relErr := filepath.Rel(targetDir, apkPath)
+		if relErr != nil {
+			relAPK = apkPath
+		}
 		outputJSON(diagnostics.OutputEnvelope{
 			Success:    true,
 			Command:    "run",
 			DurationMs: time.Since(start).Milliseconds(),
 			Data: map[string]any{
 				"device":    targetDevice.Serial,
+				"module":    module,
+				"apk":       relAPK,
 				"package":   pkg,
 				"activity":  activity,
 				"component": component,
@@ -380,8 +478,8 @@ func RunApp(targetDir string, explicitDevice string, streamLogs bool, jsonMode b
 
 	fmt.Printf("✓ %s\n", strings.TrimSpace(string(lOut)))
 
-	// 5. Optional log streaming
-	if streamLogs {
+	// 6. Optional log streaming
+	if opts.StreamLogs {
 		fmt.Printf("\n[i] Streaming logcat for %s (Press Ctrl+C to stop)...\n\n", pkg)
 		time.Sleep(500 * time.Millisecond)
 

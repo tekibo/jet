@@ -18,7 +18,7 @@ Pass `--json` for machine-readable output on the commands that have it.
 
 ## Run and check
 
-- `jet run [dir] [--device <serial>] [--no-logs] [--json]` - build debug APK, install, detect and launch the launcher activity, and stream filtered logcat (or emit JSON when `--json` is passed).
+- `jet run [dir] [--device <serial>] [--module <mod>] [--reinstall] [--no-logs] [--json]` - build primary app module debug APK, install via `adb`, detect and launch the launcher activity, and stream filtered logcat (or emit JSON when `--json` is passed). Use `--reinstall` to replace an existing install signed with a different key.
 - `jet build [dir] [--release] [--aab] [--module <mod>] [--variant <var>] [--json]` - Debug APK (default), Release APK, or App Bundle across single- or multi-module projects.
 - `jet test [dir] [--json]` - unit tests across all modules; JSON includes `failures` and pre-test Gradle `diagnostics` + `raw_output` on build failures.
 - `jet clean [dir] [--all] [--json]` - clean build caches across modules, stop daemons, and clear locks.

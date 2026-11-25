@@ -113,3 +113,24 @@ android {
 		t.Errorf("act = %q, want .ui.LauncherActivity", act)
 	}
 }
+
+func TestDetectPrimaryAppModulePrefersAppOverShellTemplate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), []byte(`include(":shell-template", ":app")`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, mod := range []string{"shell-template", "app"} {
+		dir := filepath.Join(root, mod)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "build.gradle.kts"), []byte(`plugins { id("com.android.application") }`), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := DetectPrimaryAppModule(root)
+	if got != ":app" {
+		t.Fatalf("DetectPrimaryAppModule = %q, want :app", got)
+	}
+}
