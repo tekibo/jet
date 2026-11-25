@@ -147,6 +147,41 @@ func main() {
 			}
 		}
 
+	case "install":
+		installCmd := flag.NewFlagSet("install", flag.ExitOnError)
+		deviceFlag := installCmd.String("device", "", "Explicit Android device/emulator serial ID")
+		moduleFlag := installCmd.String("module", "", "Target Gradle application module (e.g. :app)")
+		apkFlag := installCmd.String("apk", "", "Explicit path to APK file to install")
+		buildFlag := installCmd.Bool("build", false, "Force rebuild APK before installing")
+		releaseFlag := installCmd.Bool("release", false, "Install (or build) release APK instead of debug")
+		reinstallFlag := installCmd.Bool("reinstall", false, "Uninstall and reinstall if existing app has a different signing key")
+		installJSONFlag := installCmd.Bool("json", false, "Output machine-readable JSON diagnostics")
+
+		targetDir, rawArgs := splitTargetDirAndFlags(os.Args[2:], map[string]bool{
+			"--device": true, "-device": true,
+			"--module": true, "-module": true,
+			"--apk": true, "-apk": true,
+		})
+		installCmd.Parse(rawArgs)
+		if targetDir == "" && len(installCmd.Args()) > 0 {
+			targetDir = installCmd.Args()[0]
+		}
+		if targetDir == "" {
+			targetDir = "."
+		}
+
+		exitOnError("Install error", device.InstallApp(device.InstallOptions{
+			TargetDir: targetDir,
+			Device:    *deviceFlag,
+			Module:    *moduleFlag,
+			APKPath:   *apkFlag,
+			Build:     *buildFlag,
+			Release:   *releaseFlag,
+			Reinstall: *reinstallFlag,
+			JSON:      *installJSONFlag || jsonMode,
+			Templates: embeddedTemplates,
+		}))
+
 	case "run":
 		runCmd := flag.NewFlagSet("run", flag.ExitOnError)
 		deviceFlag := runCmd.String("device", "", "Explicit Android device/emulator serial ID")
@@ -155,23 +190,16 @@ func main() {
 		reinstallFlag := runCmd.Bool("reinstall", false, "Uninstall and reinstall if existing app has a different signing key")
 		runJSONFlag := runCmd.Bool("json", false, "Output machine-readable JSON diagnostics")
 
-		var targetDir string
-		var rawArgs []string
-		for _, arg := range os.Args[2:] {
-			if !strings.HasPrefix(arg, "-") && targetDir == "" && !strings.Contains(arg, "=") {
-				targetDir = arg
-			} else {
-				rawArgs = append(rawArgs, arg)
-			}
-		}
-
+		targetDir, rawArgs := splitTargetDirAndFlags(os.Args[2:], map[string]bool{
+			"--device": true, "-device": true,
+			"--module": true, "-module": true,
+		})
 		runCmd.Parse(rawArgs)
+		if targetDir == "" && len(runCmd.Args()) > 0 {
+			targetDir = runCmd.Args()[0]
+		}
 		if targetDir == "" {
-			if len(runCmd.Args()) > 0 {
-				targetDir = runCmd.Args()[0]
-			} else {
-				targetDir = "."
-			}
+			targetDir = "."
 		}
 
 		exitOnError("Run error", device.RunApp(device.RunOptions{
@@ -537,6 +565,7 @@ func printUsage() {
 	fmt.Println("  jet doctor                     Diagnose your local Android SDK & Java environment")
 	fmt.Println("  jet devices                    List connected physical devices & running emulators")
 	fmt.Println("  jet emu [start <name>]         List or launch Android Virtual Devices (AVDs)")
+	fmt.Println("  jet install [DIR] [--device]   Install APK onto connected device (builds if missing, auto-picks or lists devices)")
 	fmt.Println("  jet run [DIR] [--device <id>]  Build, install, launch Activity, & stream logs")
 	fmt.Println("  jet build [--release] [--aab]  Build debug APK (default), release APK, or .aab")
 	fmt.Println("  jet test [TARGET_DIR]          Run unit tests with structured failure parsing")
@@ -557,6 +586,7 @@ func printUsage() {
 	fmt.Println("  jet test my-app --json")
 	fmt.Println("  jet clean my-app --all")
 	fmt.Println("  jet devices")
+	fmt.Println("  jet install my-app")
 	fmt.Println("  jet run my-app")
 	fmt.Println("  jet add coil my-app")
 	fmt.Println("  jet add-screen ProfileScreen my-app")
@@ -583,6 +613,32 @@ func exitOnError(prefix string, err error) {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", prefix, err)
 	}
 	os.Exit(1)
+}
+
+func splitTargetDirAndFlags(args []string, valueFlags map[string]bool) (string, []string) {
+	var targetDir string
+	var flagArgs []string
+	expectValue := false
+	for _, arg := range args {
+		if expectValue {
+			flagArgs = append(flagArgs, arg)
+			expectValue = false
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			flagArgs = append(flagArgs, arg)
+			if !strings.Contains(arg, "=") && valueFlags[arg] {
+				expectValue = true
+			}
+			continue
+		}
+		if targetDir == "" {
+			targetDir = arg
+		} else {
+			flagArgs = append(flagArgs, arg)
+		}
+	}
+	return targetDir, flagArgs
 }
 
 func isJSONRequested() bool {

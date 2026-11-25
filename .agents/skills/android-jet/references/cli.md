@@ -18,7 +18,8 @@ Pass `--json` for machine-readable output on the commands that have it.
 
 ## Run and check
 
-- `jet run [dir] [--device <serial>] [--module <mod>] [--reinstall] [--no-logs] [--json]` - build primary app module debug APK, install via `adb`, detect and launch the launcher activity, and stream filtered logcat (or emit JSON when `--json` is passed). Use `--reinstall` to replace an existing install signed with a different key.
+- `jet install [dir] [--device <serial>] [--module <mod>] [--apk <path>] [--build] [--release] [--reinstall] [--json]` - install an APK (builds first if missing or `--build` is set) without launching/streaming logcat; auto-picks a single connected device, lists & prompts interactively if multiple (or lists serials in `--json`), and generates v4 `.idsig` for standard debug APKs on Android 11+.
+- `jet run [dir] [--device <serial>] [--module <mod>] [--reinstall] [--no-logs] [--json]` - build primary app module debug APK, install via `adb` (with v4 `.idsig` incremental install on Android 11+), detect and launch the launcher activity, and stream filtered logcat (or emit JSON when `--json` is passed). Use `--reinstall` to replace an existing install signed with a different key.
 - `jet build [dir] [--release] [--aab] [--module <mod>] [--variant <var>] [--json]` - Debug APK (default), Release APK, or App Bundle across single- or multi-module projects.
 - `jet test [dir] [--json]` - unit tests across all modules; JSON includes `failures` and pre-test Gradle `diagnostics` + `raw_output` on build failures.
 - `jet clean [dir] [--all] [--json]` - clean build caches across modules, stop daemons, and clear locks.

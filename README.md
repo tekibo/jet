@@ -70,6 +70,7 @@ jet doctor
 | `jet init` | Scaffold a modular Compose project (`:app` + `:core-ui`) | `jet init my-app` |
 | `jet doctor` | Audit Android SDK, JDK, tools, and licenses | `jet doctor` |
 | `jet run` | Build, install, launch activity, and stream logcat | `jet run my-app` |
+| `jet install` | Install APK onto connected device (auto-picks or prompts if multiple, adds v4 `.idsig`) | `jet install my-app` |
 | `jet build` | Build Debug APK (default), Release APK, or App Bundle | `jet build my-app --json` |
 | `jet test` | Run unit tests across modules with structured JSON reporting | `jet test my-app --json` |
 | `jet icon` | Generate adaptive, monochrome, splash, & notification icons | `jet icon ./logo.png --bg "#1E88E5"` |

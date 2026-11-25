@@ -2,6 +2,7 @@ package signing
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,14 +30,7 @@ func findKeytool() (string, error) {
 	return "", fmt.Errorf("keytool executable not found in PATH or JAVA_HOME; ensure JDK 17+ is installed")
 }
 
-// EnsureDebugKeystore checks if Gradle build files configure a local debug.keystore
-// with standard Android debug credentials and generates it via keytool if missing.
-// Returns the relative path of the generated keystore (or "" if none was needed).
-func EnsureDebugKeystore(targetDir string, quiet bool) (string, error) {
-	if targetDir == "" {
-		targetDir = "."
-	}
-
+func candidateBuildScripts(targetDir string) []string {
 	candidates := []string{
 		filepath.Join(targetDir, "app", "build.gradle.kts"),
 		filepath.Join(targetDir, "app", "build.gradle"),
@@ -55,6 +49,49 @@ func EnsureDebugKeystore(targetDir string, quiet bool) (string, error) {
 			}
 		}
 	}
+	return candidates
+}
+
+// FindStandardDebugKeystoreForProject returns an existing debug.keystore configured with
+// standard Android debug credentials for targetDir, or falls back to the global debug keystore.
+func FindStandardDebugKeystoreForProject(targetDir string) string {
+	if targetDir == "" {
+		targetDir = "."
+	}
+	for _, gradlePath := range candidateBuildScripts(targetDir) {
+		data, err := os.ReadFile(gradlePath)
+		if err != nil {
+			continue
+		}
+		content := string(data)
+		if !usesStandardDebugCredentials(content) {
+			continue
+		}
+		matches := debugStoreFileRegex.FindAllStringSubmatch(content, -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			destPath := resolveDebugKeystorePath(targetDir, filepath.Dir(gradlePath), m[0], m[1])
+			if destPath != "" {
+				if info, err := os.Stat(destPath); err == nil && !info.IsDir() {
+					return destPath
+				}
+			}
+		}
+	}
+	return findGlobalDebugKeystore()
+}
+
+// EnsureDebugKeystore checks if Gradle build files configure a local debug.keystore
+// with standard Android debug credentials and generates it via keytool if missing.
+// Returns the relative path of the generated keystore (or "" if none was needed).
+func EnsureDebugKeystore(targetDir string, quiet bool) (string, error) {
+	if targetDir == "" {
+		targetDir = "."
+	}
+
+	candidates := candidateBuildScripts(targetDir)
 
 	seenPaths := make(map[string]bool)
 	for _, gradlePath := range candidates {
@@ -85,7 +122,8 @@ func EnsureDebugKeystore(targetDir string, quiet bool) (string, error) {
 				continue
 			}
 
-			if err := generateDebugKeystoreFile(destPath); err != nil {
+			reusedGlobal, err := provisionStandardDebugKeystore(destPath)
+			if err != nil {
 				return "", err
 			}
 			ensureGitignoreHas(targetDir, filepath.Base(destPath))
@@ -95,7 +133,11 @@ func EnsureDebugKeystore(targetDir string, quiet bool) (string, error) {
 				rel = destPath
 			}
 			if !quiet {
-				fmt.Printf("[i] Missing debug keystore detected; generated '%s'\n", rel)
+				if reusedGlobal {
+					fmt.Printf("[i] Missing debug keystore detected; copied global debug keystore -> '%s'\n", rel)
+				} else {
+					fmt.Printf("[i] Missing debug keystore detected; generated '%s'\n", rel)
+				}
 			}
 			return rel, nil
 		}
@@ -160,6 +202,74 @@ func usesStandardDebugCredentials(content string) bool {
 		}
 	}
 	return true
+}
+
+func globalDebugKeystorePath() string {
+	if v := strings.TrimSpace(os.Getenv("ANDROID_USER_HOME")); v != "" {
+		return filepath.Join(v, "debug.keystore")
+	}
+	if v := strings.TrimSpace(os.Getenv("ANDROID_SDK_HOME")); v != "" {
+		return filepath.Join(v, ".android", "debug.keystore")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".android", "debug.keystore")
+	}
+	return ""
+}
+
+func findGlobalDebugKeystore() string {
+	if c := globalDebugKeystorePath(); c != "" {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
+
+func copyFile(src, dest string, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", dest, err)
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// provisionStandardDebugKeystore populates destPath from the global Android debug keystore
+// (~/.android/debug.keystore) when present, or creates that global keystore first and copies it
+// so all local repos share a single consistent debug signing identity.
+func provisionStandardDebugKeystore(destPath string) (reusedGlobal bool, err error) {
+	if global := findGlobalDebugKeystore(); global != "" {
+		if err := copyFile(global, destPath, 0600); err != nil {
+			return false, fmt.Errorf("failed to copy global debug keystore %s: %w", global, err)
+		}
+		return true, nil
+	}
+
+	if globalDest := globalDebugKeystorePath(); globalDest != "" {
+		if err := generateDebugKeystoreFile(globalDest); err == nil {
+			if copyErr := copyFile(globalDest, destPath, 0600); copyErr == nil {
+				return false, nil
+			}
+		}
+	}
+
+	if err := generateDebugKeystoreFile(destPath); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func generateDebugKeystoreFile(destPath string) error {

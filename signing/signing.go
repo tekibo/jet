@@ -273,24 +273,31 @@ func generateDebugMode(keytoolPath string, opts KeystoreOptions, fail func(error
 	}
 
 	if !existed {
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fail(fmt.Errorf("failed to create directory for %s: %w", destPath, err))
-		}
-		dname := fmt.Sprintf("CN=%s, O=%s, C=US", cn, org)
-		cmd := exec.Command(
-			keytoolPath,
-			"-genkeypair",
-			"-keystore", destPath,
-			"-alias", alias,
-			"-keyalg", "RSA",
-			"-keysize", "2048",
-			"-validity", "10000",
-			"-storepass", password,
-			"-keypass", password,
-			"-dname", dname,
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fail(fmt.Errorf("keytool failed: %s\nOutput: %s", err, strings.TrimSpace(string(out))))
+		isDefaultDebug := opts.CommonName == "" && opts.OrgName == "" && opts.Password == "" && opts.Alias == ""
+		if isDefaultDebug {
+			if _, err := provisionStandardDebugKeystore(destPath); err != nil {
+				return fail(err)
+			}
+		} else {
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return fail(fmt.Errorf("failed to create directory for %s: %w", destPath, err))
+			}
+			dname := fmt.Sprintf("CN=%s, O=%s, C=US", cn, org)
+			cmd := exec.Command(
+				keytoolPath,
+				"-genkeypair",
+				"-keystore", destPath,
+				"-alias", alias,
+				"-keyalg", "RSA",
+				"-keysize", "2048",
+				"-validity", "10000",
+				"-storepass", password,
+				"-keypass", password,
+				"-dname", dname,
+			)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return fail(fmt.Errorf("keytool failed: %s\nOutput: %s", err, strings.TrimSpace(string(out))))
+			}
 		}
 	}
 
